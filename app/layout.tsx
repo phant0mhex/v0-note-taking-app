@@ -4,6 +4,7 @@ import { DM_Sans } from "next/font/google"
 import { GeistMono } from "geist/font/mono"
 import { Suspense } from "react"
 import "./globals.css"
+import { ThemeProvider } from "@/components/theme-provider"
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -12,8 +13,8 @@ const dmSans = DM_Sans({
 })
 
 export const metadata: Metadata = {
-  title: "Notes - Votre journal quotidien",
-  description: "Application de prise de notes quotidiennes",
+  title: "Enculator - Votre journal quotidien",
+  description: "Application Enculator de prise de notes quotidiennes",
   generator: "v0.app",
 }
 
@@ -23,9 +24,11 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="fr">
+    <html lang="fr" suppressHydrationWarning>
       <body className={`${dmSans.variable} ${GeistMono.variable} antialiased`}>
-        <Suspense fallback={null}>{children}</Suspense>
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+          <Suspense fallback={null}>{children}</Suspense>
+        </ThemeProvider>
       </body>
     </html>
   )

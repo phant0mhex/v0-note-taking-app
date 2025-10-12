@@ -5,24 +5,50 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params
     const body = await request.json()
-    const { content } = body
+    const { content, tags, is_pinned, is_archived } = body
 
     if (!content) {
       return NextResponse.json({ error: "Content is required" }, { status: 400 })
     }
 
+    let updateFields = sql`content = ${content}, updated_at = CURRENT_TIMESTAMP`
+
+    if (tags !== undefined) {
+      updateFields = sql`${updateFields}, tags = ${tags}`
+    }
+
+    if (is_pinned !== undefined) {
+      updateFields = sql`${updateFields}, is_pinned = ${is_pinned}`
+    }
+
+    if (is_archived !== undefined) {
+      updateFields = sql`${updateFields}, is_archived = ${is_archived}`
+    }
+
     const result = await sql`
-      UPDATE notes
-      SET content = ${content}, updated_at = CURRENT_TIMESTAMP
+      UPDATE notes 
+      SET ${updateFields}
       WHERE id = ${id}
-      RETURNING id, content, date, created_at, updated_at
+      RETURNING id, content, date::text as date, created_at, updated_at, is_pinned, is_archived, tags
     `
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Note not found" }, { status: 404 })
     }
 
-    return NextResponse.json(result[0])
+    const note = result[0]
+    const serializedNote = {
+      id: note.id,
+      content: note.content,
+      date: note.date, // Already a string from date::text cast
+      created_at: note.created_at instanceof Date ? note.created_at.toISOString() : note.created_at,
+      updated_at: note.updated_at instanceof Date ? note.updated_at.toISOString() : note.updated_at,
+      is_pinned: note.is_pinned ?? false,
+      is_archived: note.is_archived ?? false,
+      tags: Array.isArray(note.tags) ? note.tags : [],
+    }
+
+    return NextResponse.json(serializedNote)
   } catch (error) {
     console.error("[v0] Error updating note:", error)
     return NextResponse.json({ error: "Failed to update note" }, { status: 500 })

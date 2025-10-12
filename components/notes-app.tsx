@@ -5,9 +5,29 @@ import { Calendar } from "@/components/ui/calendar"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { Plus, Trash2, CalendarIcon, Edit2, Check, X } from "lucide-react"
-import { format, isSameDay } from "date-fns"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import {
+  Plus,
+  Trash2,
+  CalendarIcon,
+  Edit2,
+  Check,
+  X,
+  Search,
+  Pin,
+  Archive,
+  Download,
+  Moon,
+  Sun,
+  Grid3x3,
+  List,
+  Tag,
+} from "lucide-react"
+import { format } from "date-fns"
 import { fr } from "date-fns/locale"
+import { useTheme } from "next-themes"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface Note {
   id: number
@@ -15,25 +35,60 @@ interface Note {
   content: string
   created_at: string
   updated_at: string
+  is_pinned: boolean
+  is_archived: boolean
+  tags: string[]
+}
+
+const TAG_COLORS = [
+  "bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  "bg-green-500/10 text-green-700 dark:text-green-300",
+  "bg-purple-500/10 text-purple-700 dark:text-purple-300",
+  "bg-red-500/10 text-red-700 dark:text-red-300",
+  "bg-orange-500/10 text-orange-700 dark:text-orange-300",
+  "bg-pink-500/10 text-pink-700 dark:text-pink-300",
+  "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300",
+  "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+]
+
+const exportNotes = () => {
+  // Implement export functionality here
+  console.log("Exporting notes...")
 }
 
 export function NotesApp() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [notes, setNotes] = useState<Note[]>([])
   const [newNoteContent, setNewNoteContent] = useState("")
+  const [newNoteTags, setNewNoteTags] = useState<string[]>([])
+  const [newTagInput, setNewTagInput] = useState("")
+  const [editTagInput, setEditTagInput] = useState("")
   const [showCalendar, setShowCalendar] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
   const [editContent, setEditContent] = useState("")
+  const [editTags, setEditTags] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
+  const [sortBy, setSortBy] = useState<"date" | "updated" | "alpha">("date")
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list")
+  const { theme, setTheme } = useTheme()
 
   useEffect(() => {
     fetchNotes()
-  }, [])
+  }, [searchQuery, selectedTag, showArchived, sortBy])
 
   const fetchNotes = async () => {
     try {
       setIsLoading(true)
-      const response = await fetch("/api/notes")
+      const params = new URLSearchParams()
+      if (searchQuery) params.append("search", searchQuery)
+      if (selectedTag) params.append("tag", selectedTag)
+      if (showArchived) params.append("showArchived", "true")
+      params.append("sortBy", sortBy)
+
+      const response = await fetch(`/api/notes?${params}`)
       if (response.ok) {
         const data = await response.json()
         setNotes(data)
@@ -46,27 +101,36 @@ export function NotesApp() {
   }
 
   const notesForSelectedDate = useMemo(() => {
-    return notes.filter((note) => isSameDay(new Date(note.date), selectedDate))
+    const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
+    return notes.filter((note) => note.date === selectedDateStr)
   }, [notes, selectedDate])
 
   const addNote = async () => {
     if (newNoteContent.trim()) {
       try {
+        const year = selectedDate.getFullYear()
+        const month = String(selectedDate.getMonth() + 1).padStart(2, "0")
+        const day = String(selectedDate.getDate()).padStart(2, "0")
+        const dateToSend = `${year}-${month}-${day}`
+
+        console.log("[v0] Adding note with date:", dateToSend, "selectedDate:", selectedDate)
+
         const response = await fetch("/api/notes", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             content: newNoteContent,
-            date: format(selectedDate, "yyyy-MM-dd"),
+            date: dateToSend,
+            tags: newNoteTags,
           }),
         })
 
         if (response.ok) {
           const newNote = await response.json()
-          setNotes([...notes, newNote])
+          console.log("[v0] Note created:", newNote)
+          setNotes([newNote, ...notes])
           setNewNoteContent("")
+          setNewNoteTags([])
         }
       } catch (error) {
         console.error("[v0] Error creating note:", error)
@@ -76,10 +140,7 @@ export function NotesApp() {
 
   const deleteNote = async (id: number) => {
     try {
-      const response = await fetch(`/api/notes/${id}`, {
-        method: "DELETE",
-      })
-
+      const response = await fetch(`/api/notes/${id}`, { method: "DELETE" })
       if (response.ok) {
         setNotes(notes.filter((note) => note.id !== id))
       }
@@ -88,9 +149,54 @@ export function NotesApp() {
     }
   }
 
+  const togglePin = async (note: Note) => {
+    try {
+      const response = await fetch(`/api/notes/${note.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: note.content,
+          is_pinned: !note.is_pinned,
+          tags: note.tags,
+          is_archived: note.is_archived,
+        }),
+      })
+
+      if (response.ok) {
+        const updatedNote = await response.json()
+        setNotes(notes.map((n) => (n.id === note.id ? updatedNote : n)))
+      }
+    } catch (error) {
+      console.error("[v0] Error toggling pin:", error)
+    }
+  }
+
+  const toggleArchive = async (note: Note) => {
+    try {
+      const response = await fetch(`/api/notes/${note.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: note.content,
+          is_archived: !note.is_archived,
+          tags: note.tags,
+          is_pinned: note.is_pinned,
+        }),
+      })
+
+      if (response.ok) {
+        const updatedNote = await response.json()
+        setNotes(notes.map((n) => (n.id === note.id ? updatedNote : n)))
+      }
+    } catch (error) {
+      console.error("[v0] Error toggling archive:", error)
+    }
+  }
+
   const startEditing = (note: Note) => {
     setEditingNoteId(note.id)
     setEditContent(note.content)
+    setEditTags(note.tags || [])
   }
 
   const saveEdit = async (id: number) => {
@@ -98,11 +204,10 @@ export function NotesApp() {
       try {
         const response = await fetch(`/api/notes/${id}`, {
           method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             content: editContent,
+            tags: editTags,
           }),
         })
 
@@ -111,6 +216,7 @@ export function NotesApp() {
           setNotes(notes.map((note) => (note.id === id ? updatedNote : note)))
           setEditingNoteId(null)
           setEditContent("")
+          setEditTags([])
         }
       } catch (error) {
         console.error("[v0] Error updating note:", error)
@@ -121,11 +227,49 @@ export function NotesApp() {
   const cancelEdit = () => {
     setEditingNoteId(null)
     setEditContent("")
+    setEditTags([])
   }
 
-  const datesWithNotes = useMemo(() => {
-    return notes.map((note) => new Date(note.date))
+  const toggleTag = (tag: string, isEditing = false) => {
+    if (isEditing) {
+      setEditTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+    } else {
+      setNewNoteTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+    }
+  }
+
+  const addCustomTag = (isEditing = false) => {
+    const input = isEditing ? editTagInput : newTagInput
+    const trimmedTag = input.trim()
+
+    if (trimmedTag && trimmedTag.length > 0) {
+      if (isEditing) {
+        if (!editTags.includes(trimmedTag)) {
+          setEditTags([...editTags, trimmedTag])
+        }
+        setEditTagInput("")
+      } else {
+        if (!newNoteTags.includes(trimmedTag)) {
+          setNewNoteTags([...newNoteTags, trimmedTag])
+        }
+        setNewTagInput("")
+      }
+    }
+  }
+
+  const getTagColor = (tag: string) => {
+    const allTags = Array.from(new Set(notes.flatMap((n) => n.tags || [])))
+    const index = allTags.indexOf(tag)
+    return TAG_COLORS[index % TAG_COLORS.length]
+  }
+
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>()
+    notes.forEach((note) => note.tags?.forEach((tag) => tagSet.add(tag)))
+    return Array.from(tagSet)
   }, [notes])
+
+  const pinnedNotes = notes.filter((n) => n.is_pinned && !n.is_archived)
 
   if (isLoading) {
     return (
@@ -137,12 +281,76 @@ export function NotesApp() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-6xl px-4 py-8 md:py-12">
+      <div className="mx-auto max-w-7xl px-4 py-8 md:py-12">
         {/* Header */}
-        <header className="mb-12">
-          <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-5xl">Enculator</h1>
-          <p className="mt-2 text-lg text-muted-foreground">Votre journal quotidien</p>
+        <header className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-5xl">Enculator</h1>
+            <p className="mt-2 text-lg text-muted-foreground">Votre journal quotidien</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+            <Button variant="outline" size="icon" onClick={exportNotes}>
+              <Download className="h-4 w-4" />
+            </Button>
+          </div>
         </header>
+
+        {/* Search and Filters */}
+        <div className="mb-6 flex flex-wrap gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher dans les notes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="date">Par date</SelectItem>
+              <SelectItem value="updated">Dernière modif.</SelectItem>
+              <SelectItem value="alpha">Alphabétique</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="icon" onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}>
+            {viewMode === "grid" ? <List className="h-4 w-4" /> : <Grid3x3 className="h-4 w-4" />}
+          </Button>
+          <Button variant={showArchived ? "default" : "outline"} onClick={() => setShowArchived(!showArchived)}>
+            <Archive className="mr-2 h-4 w-4" />
+            Archivées
+          </Button>
+        </div>
+
+        {/* Tags Filter */}
+        {allTags.length > 0 && (
+          <div className="mb-6 flex flex-wrap gap-2">
+            <Button
+              variant={selectedTag === null ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedTag(null)}
+            >
+              Tous
+            </Button>
+            {allTags.map((tag) => (
+              <Button
+                key={tag}
+                variant={selectedTag === tag ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+              >
+                <Tag className="mr-1 h-3 w-3" />
+                {tag}
+              </Button>
+            ))}
+          </div>
+        )}
 
         <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
           {/* Sidebar - Calendar */}
@@ -166,15 +374,8 @@ export function NotesApp() {
                   onSelect={(date) => date && setSelectedDate(date)}
                   locale={fr}
                   className="rounded-md"
-                  modifiers={{
-                    hasNotes: datesWithNotes,
-                  }}
-                  modifiersStyles={{
-                    hasNotes: {
-                      fontWeight: "bold",
-                      textDecoration: "underline",
-                    },
-                  }}
+                  modifiers={{ hasNotes: allTags }}
+                  modifiersStyles={{ hasNotes: { fontWeight: "bold", textDecoration: "underline" } }}
                 />
               </div>
             </Card>
@@ -183,12 +384,16 @@ export function NotesApp() {
               <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">Statistiques</h3>
               <div className="space-y-3">
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{notes.length}</p>
-                  <p className="text-sm text-muted-foreground">Notes totales</p>
+                  <p className="text-2xl font-bold text-foreground">{notes.filter((n) => !n.is_archived).length}</p>
+                  <p className="text-sm text-muted-foreground">Notes actives</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{notesForSelectedDate.length}</p>
-                  <p className="text-sm text-muted-foreground">Notes aujourd'hui</p>
+                  <p className="text-2xl font-bold text-foreground">{pinnedNotes.length}</p>
+                  <p className="text-sm text-muted-foreground">Notes épinglées</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-foreground">{allTags.length}</p>
+                  <p className="text-sm text-muted-foreground">Tags uniques</p>
                 </div>
               </div>
             </Card>
@@ -220,6 +425,61 @@ export function NotesApp() {
                   }
                 }}
               />
+              <div className="mb-4 space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Ajouter un tag personnalisé..."
+                    value={newTagInput}
+                    onChange={(e) => setNewTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        addCustomTag(false)
+                      }
+                    }}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addCustomTag(false)}
+                    disabled={!newTagInput.trim()}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                {newNoteTags.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {newNoteTags.map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant="default"
+                        className={`cursor-pointer ${getTagColor(tag)}`}
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tag}
+                        <X className="ml-1 h-3 w-3" />
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {allTags.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    <p className="w-full text-xs text-muted-foreground">Tags existants :</p>
+                    {allTags.map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant={newNoteTags.includes(tag) ? "default" : "outline"}
+                        className={`cursor-pointer ${newNoteTags.includes(tag) ? getTagColor(tag) : ""}`}
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="flex justify-end">
                 <Button onClick={addNote} disabled={!newNoteContent.trim()}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -229,7 +489,7 @@ export function NotesApp() {
             </Card>
 
             {/* Notes List */}
-            <div className="space-y-4">
+            <div className={viewMode === "grid" ? "grid gap-4 md:grid-cols-2" : "space-y-4"}>
               {notesForSelectedDate.length === 0 ? (
                 <Card className="p-12 text-center">
                   <p className="text-muted-foreground">Aucune note pour cette date.</p>
@@ -239,7 +499,10 @@ export function NotesApp() {
                 </Card>
               ) : (
                 notesForSelectedDate.map((note) => (
-                  <Card key={note.id} className="p-6 transition-shadow hover:shadow-md">
+                  <Card
+                    key={note.id}
+                    className={`p-6 transition-shadow hover:shadow-md ${note.is_pinned ? "ring-2 ring-primary" : ""}`}
+                  >
                     {editingNoteId === note.id ? (
                       <div className="space-y-4">
                         <Textarea
@@ -248,6 +511,61 @@ export function NotesApp() {
                           className="min-h-[120px] resize-none"
                           autoFocus
                         />
+                        <div className="space-y-3">
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Ajouter un tag personnalisé..."
+                              value={editTagInput}
+                              onChange={(e) => setEditTagInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault()
+                                  addCustomTag(true)
+                                }
+                              }}
+                              className="flex-1"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => addCustomTag(true)}
+                              disabled={!editTagInput.trim()}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {editTags.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {editTags.map((tag) => (
+                                <Badge
+                                  key={tag}
+                                  variant="default"
+                                  className={`cursor-pointer ${getTagColor(tag)}`}
+                                  onClick={() => toggleTag(tag, true)}
+                                >
+                                  {tag}
+                                  <X className="ml-1 h-3 w-3" />
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                          {allTags.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              <p className="w-full text-xs text-muted-foreground">Tags existants :</p>
+                              {allTags.map((tag) => (
+                                <Badge
+                                  key={tag}
+                                  variant={editTags.includes(tag) ? "default" : "outline"}
+                                  className={`cursor-pointer ${editTags.includes(tag) ? getTagColor(tag) : ""}`}
+                                  onClick={() => toggleTag(tag, true)}
+                                >
+                                  {tag}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         <div className="flex justify-end gap-2">
                           <Button variant="ghost" size="sm" onClick={cancelEdit}>
                             <X className="mr-2 h-4 w-4" />
@@ -260,20 +578,48 @@ export function NotesApp() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <p className="whitespace-pre-wrap text-foreground leading-relaxed">{note.content}</p>
-                          <p className="mt-3 text-xs text-muted-foreground">
-                            {format(new Date(note.created_at), "HH:mm", { locale: fr })}
-                          </p>
-                        </div>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => startEditing(note)} title="Éditer">
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)} title="Supprimer">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                      <div>
+                        <div className="mb-3 flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            {note.tags && note.tags.length > 0 && (
+                              <div className="mb-2 flex flex-wrap gap-1">
+                                {note.tags.map((tag) => (
+                                  <Badge key={tag} variant="secondary" className={getTagColor(tag)}>
+                                    {tag}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                            <p className="whitespace-pre-wrap text-foreground leading-relaxed">{note.content}</p>
+                            <p className="mt-3 text-xs text-muted-foreground">
+                              Créée: {format(new Date(note.created_at), "HH:mm", { locale: fr })} • Modifiée:{" "}
+                              {format(new Date(note.updated_at), "HH:mm", { locale: fr })}
+                            </p>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => togglePin(note)}
+                              title={note.is_pinned ? "Désépingler" : "Épingler"}
+                            >
+                              <Pin className={`h-4 w-4 ${note.is_pinned ? "fill-current" : ""}`} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => toggleArchive(note)}
+                              title={note.is_archived ? "Désarchiver" : "Archiver"}
+                            >
+                              <Archive className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => startEditing(note)} title="Éditer">
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)} title="Supprimer">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     )}
