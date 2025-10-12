@@ -351,9 +351,13 @@ export function NotesApp() {
             />
             <div>
               <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-5xl">Enculator</h1>
-              <p className="mt-2 text-lg text-muted-foreground">
-                Connecté en tant que <span className="font-medium text-foreground">{currentUser}</span>
-              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <Badge variant="default" className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-1 text-sm">
+                  <span className="mr-1">👤</span>
+                  {currentUser}
+                </Badge>
+                <span className="text-xs text-muted-foreground">connecté</span>
+              </div>
             </div>
           </div>
           <div className="flex gap-2">
