@@ -73,7 +73,14 @@ const handleLogout = (setCurrentUser: React.Dispatch<React.SetStateAction<string
   setCurrentUser(null)
 }
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json())
+const fetcher = async (url: string) => {
+  const res = await fetch(url)
+  if (!res.ok) {
+    const error = new Error("An error occurred while fetching the data.")
+    throw error
+  }
+  return res.json()
+}
 
 export function NotesApp() {
   const [currentUser, setCurrentUser] = useState<string | null>(null)
@@ -103,7 +110,7 @@ export function NotesApp() {
   }, [searchQuery, selectedTag, showArchived, sortBy])
 
   const {
-    data: notes = [],
+    data: notes,
     error,
     isLoading,
     mutate,
@@ -111,12 +118,15 @@ export function NotesApp() {
     refreshInterval: 5000, // Refresh every 5 seconds
     revalidateOnFocus: true, // Revalidate when window regains focus
     revalidateOnReconnect: true, // Revalidate when reconnecting
+    fallbackData: [],
   })
+
+  const safeNotes = notes || []
 
   const notesForSelectedDate = useMemo(() => {
     const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
-    return notes.filter((note) => note.date === selectedDateStr)
-  }, [notes, selectedDate])
+    return safeNotes.filter((note) => note.date === selectedDateStr)
+  }, [safeNotes, selectedDate])
 
   const addNote = async () => {
     if (newNoteContent.trim()) {
@@ -139,7 +149,7 @@ export function NotesApp() {
 
         if (response.ok) {
           const newNote = await response.json()
-          mutate([newNote, ...notes], false)
+          mutate([newNote, ...safeNotes], false)
           setNewNoteContent("")
           setNewNoteTags([])
           mutate()
@@ -153,7 +163,7 @@ export function NotesApp() {
   const deleteNote = async (id: number) => {
     try {
       mutate(
-        notes.filter((note) => note.id !== id),
+        safeNotes.filter((note) => note.id !== id),
         false,
       )
       const response = await fetch(`/api/notes/${id}`, { method: "DELETE" })
@@ -171,7 +181,7 @@ export function NotesApp() {
   const togglePin = async (note: Note) => {
     try {
       mutate(
-        notes.map((n) => (n.id === note.id ? { ...n, is_pinned: !n.is_pinned } : n)),
+        safeNotes.map((n) => (n.id === note.id ? { ...n, is_pinned: !n.is_pinned } : n)),
         false,
       )
 
@@ -200,7 +210,7 @@ export function NotesApp() {
   const toggleArchive = async (note: Note) => {
     try {
       mutate(
-        notes.map((n) => (n.id === note.id ? { ...n, is_archived: !n.is_archived } : n)),
+        safeNotes.map((n) => (n.id === note.id ? { ...n, is_archived: !n.is_archived } : n)),
         false,
       )
 
@@ -247,7 +257,7 @@ export function NotesApp() {
         if (response.ok) {
           const updatedNote = await response.json()
           mutate(
-            notes.map((note) => (note.id === id ? updatedNote : note)),
+            safeNotes.map((note) => (note.id === id ? updatedNote : note)),
             false,
           )
           setEditingNoteId(null)
@@ -295,18 +305,18 @@ export function NotesApp() {
   }
 
   const getTagColor = (tag: string) => {
-    const allTags = Array.from(new Set(notes.flatMap((n) => n.tags || [])))
+    const allTags = Array.from(new Set(safeNotes.flatMap((n) => n.tags || [])))
     const index = allTags.indexOf(tag)
     return TAG_COLORS[index % TAG_COLORS.length]
   }
 
   const allTags = useMemo(() => {
     const tagSet = new Set<string>()
-    notes.forEach((note) => note.tags?.forEach((tag) => tagSet.add(tag)))
+    safeNotes.forEach((note) => note.tags?.forEach((tag) => tagSet.add(tag)))
     return Array.from(tagSet)
-  }, [notes])
+  }, [safeNotes])
 
-  const pinnedNotes = notes.filter((n) => n.is_pinned && !n.is_archived)
+  const pinnedNotes = safeNotes.filter((n) => n.is_pinned && !n.is_archived)
 
   if (isLoading) {
     return (
@@ -445,7 +455,7 @@ export function NotesApp() {
               <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">Statistiques</h3>
               <div className="space-y-3">
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{notes.filter((n) => !n.is_archived).length}</p>
+                  <p className="text-2xl font-bold text-foreground">{safeNotes.filter((n) => !n.is_archived).length}</p>
                   <p className="text-sm text-muted-foreground">Notes actives</p>
                 </div>
                 <div>
