@@ -333,11 +333,18 @@ export function NotesApp() {
       <div className="mx-auto max-w-7xl px-4 py-8 md:py-12">
         {/* Header */}
         <header className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-5xl">Enculator</h1>
-            <p className="mt-2 text-lg text-muted-foreground">
-              Connecté en tant que <span className="font-medium text-foreground">{currentUser}</span>
-            </p>
+          <div className="flex items-center gap-4">
+            <img
+              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/58014-removebg-preview-gsixj3Mphq7dlf8NJmhkUrthjynSAk.png"
+              alt="Enculator Logo"
+              className="h-16 w-16 object-contain"
+            />
+            <div>
+              <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-5xl">Enculator</h1>
+              <p className="mt-2 text-lg text-muted-foreground">
+                Connecté en tant que <span className="font-medium text-foreground">{currentUser}</span>
+              </p>
+            </div>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="icon" onClick={() => handleLogout(setCurrentUser)} title="Se déconnecter">
