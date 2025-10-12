@@ -24,6 +24,13 @@ export function Login({ onLogin }: LoginProps) {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
+          <div className="flex justify-center mb-4">
+            <img
+              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-xgc1KdmrfZYaDZ9oO0LNC3ZMWfG4a7.png"
+              alt="Enculator Logo"
+              className="h-20 w-20 object-contain"
+            />
+          </div>
           <CardTitle className="text-3xl font-light">Enculator</CardTitle>
           <CardDescription>Sélectionnez votre profil pour continuer</CardDescription>
         </CardHeader>

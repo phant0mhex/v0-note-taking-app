@@ -335,7 +335,7 @@ export function NotesApp() {
         <header className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <img
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/58014-removebg-preview-gsixj3Mphq7dlf8NJmhkUrthjynSAk.png"
+              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-xgc1KdmrfZYaDZ9oO0LNC3ZMWfG4a7.png"
               alt="Enculator Logo"
               className="h-16 w-16 object-contain"
             />
