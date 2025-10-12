@@ -1,6 +1,8 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import type React from "react"
+import { useState, useMemo } from "react"
+import useSWR from "swr"
 import { Calendar } from "@/components/ui/calendar"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -23,11 +25,13 @@ import {
   Grid3x3,
   List,
   Tag,
+  LogOut,
 } from "lucide-react"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { useTheme } from "next-themes"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Login } from "@/components/login"
 
 interface Note {
   id: number
@@ -38,6 +42,7 @@ interface Note {
   is_pinned: boolean
   is_archived: boolean
   tags: string[]
+  author: string | null // Added author field
 }
 
 const TAG_COLORS = [
@@ -56,9 +61,23 @@ const exportNotes = () => {
   console.log("Exporting notes...")
 }
 
+const handleLogin = (user: string, setCurrentUser: React.Dispatch<React.SetStateAction<string | null>>) => {
+  // Implement login functionality here
+  localStorage.setItem("enculator_user", user)
+  setCurrentUser(user)
+}
+
+const handleLogout = (setCurrentUser: React.Dispatch<React.SetStateAction<string | null>>) => {
+  // Implement logout functionality here
+  localStorage.removeItem("enculator_user")
+  setCurrentUser(null)
+}
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json())
+
 export function NotesApp() {
+  const [currentUser, setCurrentUser] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
-  const [notes, setNotes] = useState<Note[]>([])
   const [newNoteContent, setNewNoteContent] = useState("")
   const [newNoteTags, setNewNoteTags] = useState<string[]>([])
   const [newTagInput, setNewTagInput] = useState("")
@@ -67,7 +86,6 @@ export function NotesApp() {
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
   const [editContent, setEditContent] = useState("")
   const [editTags, setEditTags] = useState<string[]>([])
-  const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [showArchived, setShowArchived] = useState(false)
@@ -75,30 +93,25 @@ export function NotesApp() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("list")
   const { theme, setTheme } = useTheme()
 
-  useEffect(() => {
-    fetchNotes()
+  const apiUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    if (searchQuery) params.append("search", searchQuery)
+    if (selectedTag) params.append("tag", selectedTag)
+    if (showArchived) params.append("showArchived", "true")
+    params.append("sortBy", sortBy)
+    return `/api/notes?${params}`
   }, [searchQuery, selectedTag, showArchived, sortBy])
 
-  const fetchNotes = async () => {
-    try {
-      setIsLoading(true)
-      const params = new URLSearchParams()
-      if (searchQuery) params.append("search", searchQuery)
-      if (selectedTag) params.append("tag", selectedTag)
-      if (showArchived) params.append("showArchived", "true")
-      params.append("sortBy", sortBy)
-
-      const response = await fetch(`/api/notes?${params}`)
-      if (response.ok) {
-        const data = await response.json()
-        setNotes(data)
-      }
-    } catch (error) {
-      console.error("[v0] Error fetching notes:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const {
+    data: notes = [],
+    error,
+    isLoading,
+    mutate,
+  } = useSWR<Note[]>(apiUrl, fetcher, {
+    refreshInterval: 5000, // Refresh every 5 seconds
+    revalidateOnFocus: true, // Revalidate when window regains focus
+    revalidateOnReconnect: true, // Revalidate when reconnecting
+  })
 
   const notesForSelectedDate = useMemo(() => {
     const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
@@ -113,8 +126,6 @@ export function NotesApp() {
         const day = String(selectedDate.getDate()).padStart(2, "0")
         const dateToSend = `${year}-${month}-${day}`
 
-        console.log("[v0] Adding note with date:", dateToSend, "selectedDate:", selectedDate)
-
         const response = await fetch("/api/notes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -122,15 +133,16 @@ export function NotesApp() {
             content: newNoteContent,
             date: dateToSend,
             tags: newNoteTags,
+            author: currentUser,
           }),
         })
 
         if (response.ok) {
           const newNote = await response.json()
-          console.log("[v0] Note created:", newNote)
-          setNotes([newNote, ...notes])
+          mutate([newNote, ...notes], false)
           setNewNoteContent("")
           setNewNoteTags([])
+          mutate()
         }
       } catch (error) {
         console.error("[v0] Error creating note:", error)
@@ -140,17 +152,29 @@ export function NotesApp() {
 
   const deleteNote = async (id: number) => {
     try {
+      mutate(
+        notes.filter((note) => note.id !== id),
+        false,
+      )
       const response = await fetch(`/api/notes/${id}`, { method: "DELETE" })
       if (response.ok) {
-        setNotes(notes.filter((note) => note.id !== id))
+        mutate()
+      } else {
+        mutate()
       }
     } catch (error) {
       console.error("[v0] Error deleting note:", error)
+      mutate()
     }
   }
 
   const togglePin = async (note: Note) => {
     try {
+      mutate(
+        notes.map((n) => (n.id === note.id ? { ...n, is_pinned: !n.is_pinned } : n)),
+        false,
+      )
+
       const response = await fetch(`/api/notes/${note.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -163,16 +187,23 @@ export function NotesApp() {
       })
 
       if (response.ok) {
-        const updatedNote = await response.json()
-        setNotes(notes.map((n) => (n.id === note.id ? updatedNote : n)))
+        mutate()
+      } else {
+        mutate()
       }
     } catch (error) {
       console.error("[v0] Error toggling pin:", error)
+      mutate()
     }
   }
 
   const toggleArchive = async (note: Note) => {
     try {
+      mutate(
+        notes.map((n) => (n.id === note.id ? { ...n, is_archived: !n.is_archived } : n)),
+        false,
+      )
+
       const response = await fetch(`/api/notes/${note.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -185,11 +216,13 @@ export function NotesApp() {
       })
 
       if (response.ok) {
-        const updatedNote = await response.json()
-        setNotes(notes.map((n) => (n.id === note.id ? updatedNote : n)))
+        mutate()
+      } else {
+        mutate()
       }
     } catch (error) {
       console.error("[v0] Error toggling archive:", error)
+      mutate()
     }
   }
 
@@ -213,10 +246,14 @@ export function NotesApp() {
 
         if (response.ok) {
           const updatedNote = await response.json()
-          setNotes(notes.map((note) => (note.id === id ? updatedNote : note)))
+          mutate(
+            notes.map((note) => (note.id === id ? updatedNote : note)),
+            false,
+          )
           setEditingNoteId(null)
           setEditContent("")
           setEditTags([])
+          mutate()
         }
       } catch (error) {
         console.error("[v0] Error updating note:", error)
@@ -279,6 +316,18 @@ export function NotesApp() {
     )
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-destructive">Erreur lors du chargement des notes</p>
+      </div>
+    )
+  }
+
+  if (!currentUser) {
+    return <Login onLogin={(user: string) => handleLogin(user, setCurrentUser)} />
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-7xl px-4 py-8 md:py-12">
@@ -286,9 +335,14 @@ export function NotesApp() {
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-5xl">Enculator</h1>
-            <p className="mt-2 text-lg text-muted-foreground">Votre journal quotidien</p>
+            <p className="mt-2 text-lg text-muted-foreground">
+              Connecté en tant que <span className="font-medium text-foreground">{currentUser}</span>
+            </p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={() => handleLogout(setCurrentUser)} title="Se déconnecter">
+              <LogOut className="h-4 w-4" />
+            </Button>
             <Button variant="outline" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
@@ -592,6 +646,8 @@ export function NotesApp() {
                             )}
                             <p className="whitespace-pre-wrap text-foreground leading-relaxed">{note.content}</p>
                             <p className="mt-3 text-xs text-muted-foreground">
+                              {note.author && <span className="font-medium">{note.author}</span>}
+                              {note.author && " • "}
                               Créée: {format(new Date(note.created_at), "HH:mm", { locale: fr })} • Modifiée:{" "}
                               {format(new Date(note.updated_at), "HH:mm", { locale: fr })}
                             </p>

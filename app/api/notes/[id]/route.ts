@@ -29,7 +29,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       UPDATE notes 
       SET ${updateFields}
       WHERE id = ${id}
-      RETURNING id, content, date::text as date, created_at, updated_at, is_pinned, is_archived, tags
+      RETURNING id, content, date::text as date, created_at, updated_at, is_pinned, is_archived, tags, author
     `
 
     if (result.length === 0) {
@@ -40,12 +40,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const serializedNote = {
       id: note.id,
       content: note.content,
-      date: note.date, // Already a string from date::text cast
+      date: note.date,
       created_at: note.created_at instanceof Date ? note.created_at.toISOString() : note.created_at,
       updated_at: note.updated_at instanceof Date ? note.updated_at.toISOString() : note.updated_at,
       is_pinned: note.is_pinned ?? false,
       is_archived: note.is_archived ?? false,
       tags: Array.isArray(note.tags) ? note.tags : [],
+      author: note.author || null,
     }
 
     return NextResponse.json(serializedNote)
