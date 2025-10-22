@@ -32,6 +32,7 @@ import { fr } from "date-fns/locale"
 import { useTheme } from "next-themes"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Login } from "@/components/login"
+import jsPDF from "jspdf" // Importation de jsPDF
 
 interface Note {
   id: number
@@ -56,9 +57,58 @@ const TAG_COLORS = [
   "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
 ]
 
-const exportNotes = () => {
-  // Implement export functionality here
-  console.log("Exporting notes...")
+const exportNotesToPDF = (notesToExport: Note[], selectedDate: Date) => {
+  if (notesToExport.length === 0) {
+    alert("Aucune note à exporter pour cette date.")
+    return
+  }
+
+  const doc = new jsPDF()
+  const formattedDate = format(selectedDate, "EEEE d MMMM yyyy", { locale: fr })
+  const margin = 14
+  const maxWidth = doc.internal.pageSize.width - margin * 2
+  let y = 22 // Position verticale initiale
+
+  doc.setFontSize(18)
+  doc.text(`Notes du ${formattedDate}`, margin, y)
+  y += 18
+
+  notesToExport
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .forEach((note) => {
+      // Vérifier si on a besoin d'une nouvelle page
+      if (y > doc.internal.pageSize.height - 40) {
+        doc.addPage()
+        y = 20 // Réinitialiser y pour la nouvelle page
+      }
+
+      const meta = `Auteur: ${note.author || "Inconnu"}  |  Modifiée: ${format(new Date(note.updated_at), "HH:mm", { locale: fr })}`
+      doc.setFontSize(10)
+      doc.setTextColor(100) // Gris
+      doc.text(meta, margin, y)
+      y += 6
+
+      doc.setFontSize(12)
+      doc.setTextColor(0) // Noir
+      const contentLines = doc.splitTextToSize(note.content, maxWidth)
+      doc.text(contentLines, margin, y)
+      y += contentLines.length * 7
+
+      if (note.tags && note.tags.length > 0) {
+        const tagsStr = `Tags: ${note.tags.join(", ")}`
+        doc.setFontSize(9)
+        doc.setTextColor(70, 70, 200) // Bleu
+        doc.text(tagsStr, margin, y)
+        y += 7
+      }
+
+      y += 5
+      doc.setDrawColor(200) // Ligne de séparation grise
+      doc.line(margin, y, maxWidth + margin, y)
+      y += 10
+    })
+
+  doc.save(`enculator-export-${format(selectedDate, "yyyy-MM-dd")}.pdf`)
 }
 
 const handleLogin = (user: string, setCurrentUser: React.Dispatch<React.SetStateAction<string | null>>) => {
@@ -123,7 +173,14 @@ export function NotesApp() {
 
   const safeNotes = notes || []
 
+  // Notes pour la date sélectionnée ET l'utilisateur courant (pour l'affichage)
   const notesForSelectedDate = useMemo(() => {
+    const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
+    return safeNotes.filter((note) => note.date === selectedDateStr && note.author === currentUser)
+  }, [safeNotes, selectedDate, currentUser])
+
+  // Notes pour la date sélectionnée, TOUS utilisateurs (pour l'export PDF)
+  const notesForSelectedDateAllUsers = useMemo(() => {
     const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
     return safeNotes.filter((note) => note.date === selectedDateStr)
   }, [safeNotes, selectedDate])
@@ -312,11 +369,14 @@ export function NotesApp() {
 
   const allTags = useMemo(() => {
     const tagSet = new Set<string>()
-    safeNotes.forEach((note) => note.tags?.forEach((tag) => tagSet.add(tag)))
+    safeNotes
+      .filter((note) => note.author === currentUser) // Filtre les tags pour l'utilisateur courant
+      .forEach((note) => note.tags?.forEach((tag) => tagSet.add(tag)))
     return Array.from(tagSet)
-  }, [safeNotes])
+  }, [safeNotes, currentUser])
 
-  const pinnedNotes = safeNotes.filter((n) => n.is_pinned && !n.is_archived)
+  const pinnedNotes = safeNotes.filter((n) => n.is_pinned && !n.is_archived && n.author === currentUser)
+  const activeNotesCount = safeNotes.filter((n) => !n.is_archived && n.author === currentUser).length
 
   if (isLoading) {
     return (
@@ -367,7 +427,12 @@ export function NotesApp() {
             <Button variant="outline" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
-            <Button variant="outline" size="icon" onClick={exportNotes}>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => exportNotesToPDF(notesForSelectedDateAllUsers, selectedDate)}
+              title="Exporter en PDF (cette date)"
+            >
               <Download className="h-4 w-4" />
             </Button>
           </div>
@@ -459,7 +524,7 @@ export function NotesApp() {
               <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">Statistiques</h3>
               <div className="space-y-3">
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{safeNotes.filter((n) => !n.is_archived).length}</p>
+                  <p className="text-2xl font-bold text-foreground">{activeNotesCount}</p>
                   <p className="text-sm text-muted-foreground">Notes actives</p>
                 </div>
                 <div>
@@ -468,6 +533,7 @@ export function NotesApp() {
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-foreground">{allTags.length}</p>
+
                   <p className="text-sm text-muted-foreground">Tags uniques</p>
                 </div>
               </div>
@@ -482,7 +548,7 @@ export function NotesApp() {
                 {format(selectedDate, "EEEE d MMMM yyyy", { locale: fr })}
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                {notesForSelectedDate.length} {notesForSelectedDate.length > 1 ? "notes" : "note"}
+                {notesForSelectedDate.length} {notesForSelectedDate.length > 1 ? "notes" : "note"} (pour vous)
               </p>
             </div>
 
