@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useMemo } from "react"
+import dynamic from "next/dynamic"
 import useSWR from "swr"
 import { Calendar } from "@/components/ui/calendar"
 import { Button } from "@/components/ui/button"
@@ -20,6 +21,7 @@ import {
   Pin,
   Archive,
   Download,
+  Calendar as CalendarDays,
   Moon,
   Sun,
   Grid3x3,
@@ -30,6 +32,7 @@ import {
 } from "lucide-react"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
+import { type DateRange } from "react-day-picker"
 import { useTheme } from "next-themes"
 import {
   Select,
@@ -38,6 +41,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Login } from "@/components/login"
 import jsPDF from "jspdf" // Importation de jsPDF
 
@@ -52,6 +60,25 @@ interface Note {
   tags: string[]
   author: string | null // Added author field
 }
+
+const RichTextEditorPlaceholder = () => (
+  <div className="flex min-h-[168px] w-full flex-col rounded-md border border-input">
+    <div className="h-10 w-full border-b border-input bg-transparent p-2"></div>
+    <div className="min-h-[120px] w-full px-3 py-2"></div>
+  </div>
+)
+
+// Charge dynamiquement l'éditeur, désactive le SSR, et utilise le placeholder
+const RichTextEditor = dynamic(
+  () =>
+    import("@/components/ui/rich-text-editor").then(
+      (mod) => mod.RichTextEditor,
+    ),
+  {
+    ssr: false,
+    loading: () => <RichTextEditorPlaceholder />,
+  },
+)
 
 const TAG_COLORS = [
   "bg-blue-500/10 text-blue-700 dark:text-blue-300",
@@ -155,6 +182,7 @@ export function NotesApp() {
   const [currentUser, setCurrentUser] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [mainView, setMainView] = useState<"calendar" | "timeline">("calendar") // État pour basculer la vue
+  const [timelineRange, setTimelineRange] = useState<DateRange | undefined>(undefined) // <-- AJOUTEZ CET ÉTAT
   const [newNoteContent, setNewNoteContent] = useState("")
   const [newNoteTags, setNewNoteTags] = useState<string[]>([])
   const [newTagInput, setNewTagInput] = useState("")
@@ -177,17 +205,24 @@ export function NotesApp() {
     if (showArchived) params.append("showArchived", "true")
     params.append("sortBy", sortBy)
     
-    // IMPORTANT : On ne filtre par date que dans la vue calendrier
-    // La vue timeline a besoin de toutes les notes (filtrées par recherche/tag/archive)
+    // ▼▼▼ LOGIQUE DE DATE MISE À JOUR ▼▼▼
     if (mainView === 'calendar') {
-       // La logique originale filtrait en local.
-       // Pour optimiser, on pourrait ajouter le filtre de date ici :
-       // params.append("date", format(selectedDate, "yyyy-MM-dd"))
-       // Mais pour garder la logique de "notesForSelectedDate" simple, on continue de tout charger.
+      // Vue Calendrier : ne charge que le jour sélectionné
+      params.append("date", format(selectedDate, "yyyy-MM-dd"))
+    } else if (mainView === 'timeline' && timelineRange?.from) {
+      // Vue Timeline : charge la plage si elle est définie
+      params.append("startDate", format(timelineRange.from, "yyyy-MM-dd"))
+      // Gère le cas où seule une date de début est sélectionnée (ou une plage d'un seul jour)
+      params.append("endDate", format(timelineRange.to ?? timelineRange.from, "yyyy-MM-dd"))
+
+      params.append("ignorePinned", "true")
     }
+    // Si mainView === 'timeline' et qu'aucune plage n'est définie,
+    // il ne met aucun filtre de date, chargeant TOUT (ce qui est correct).
+    // ▲▲▲ FIN DE LA LOGIQUE DE DATE ▲▲▲
 
     return `/api/notes?${params}`
-  }, [searchQuery, selectedTag, showArchived, sortBy, mainView, selectedDate]) // Ajout de mainView et selectedDate
+  }, [searchQuery, selectedTag, showArchived, sortBy, mainView, selectedDate, timelineRange]) // Ajout de mainView et selectedDate
 
   const {
     data: notes,
@@ -203,11 +238,17 @@ export function NotesApp() {
 
   const safeNotes = notes || [] // `safeNotes` contient TOUTES les notes (filtrées par API)
 
-  // Notes pour la date sélectionnée (TOUS utilisateurs) - UTILISÉ SEULEMENT PAR LA VUE CALENDRIER
+ // ▼▼▼ LOGIQUE SIMPLIFIÉE ▼▼▼
+  // safeNotes contient DÉJÀ les bonnes notes (soit d'un jour, soit d'une plage)
   const notesForSelectedDate = useMemo(() => {
-    const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
-    return safeNotes.filter((note) => note.date === selectedDateStr)
-  }, [safeNotes, selectedDate])
+    if (mainView === 'calendar') {
+      return safeNotes
+    }
+    // N'est pas pertinent pour la timeline, mais on le garde pour la compatibilité
+    return [] 
+  }, [safeNotes, mainView])
+  // ▲▲▲ FIN DE LA SIMPLIFICATION ▲▲▲
+
 
   const addNote = async () => {
     if (newNoteContent.trim()) {
@@ -428,12 +469,10 @@ export function NotesApp() {
       >
         {editingNoteId === note.id ? (
           <div className="space-y-4">
-            <Textarea
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              className="min-h-[120px] resize-none"
-              autoFocus
-            />
+          <RichTextEditor
+  content={editContent}
+  onChange={setEditContent}
+/>
             <div className="space-y-3">
               <div className="flex gap-2">
                 <Input
@@ -525,9 +564,10 @@ export function NotesApp() {
                     ))}
                   </div>
                 )}
-                <p className="whitespace-pre-wrap text-foreground leading-relaxed">
-                  {note.content}
-                </p>
+               <div
+  className="prose dark:prose-invert prose-sm sm:prose-base max-w-none"
+  dangerouslySetInnerHTML={{ __html: note.content }}
+/>
                 <p className="mt-3 text-xs text-muted-foreground">
                   {note.author && (
                     <span className="font-medium">{note.author}</span>
@@ -619,6 +659,21 @@ export function NotesApp() {
         </Card>
       )
     }
+
+    // ▼▼▼ MODIFICATION ICI ▼▼▼
+
+    // On récupère les entrées (les paires [date, notes[]])
+    const entries = [...groupedNotes.entries()]
+
+    // On trie explicitement les entrées par la clé (la date string)
+    // en ordre DESCENDANT (B comparé à A)
+    // Cela garantit que les jours sont toujours du plus récent au plus ancien,
+    // peu importe le filtre de tri (alpha, etc.)
+    const sortedEntries = entries.sort(([dateA], [dateB]) =>
+      dateB.localeCompare(dateA),
+    )
+    
+    // ▲▲▲ FIN DE LA MODIFICATION ▲▲▲
 
     return (
       <div className="space-y-8">
@@ -917,17 +972,11 @@ export function NotesApp() {
                   <h3 className="mb-4 text-sm font-medium uppercase tracking-wide text-muted-foreground">
                     Nouvelle note
                   </h3>
-                  <Textarea
-                    placeholder="Écrivez votre note ici..."
-                    value={newNoteContent}
-                    onChange={(e) => setNewNoteContent(e.target.value)}
-                    className="mb-4 min-h-[120px] resize-none"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                        addNote()
-                      }
-                    }}
-                  />
+                 <RichTextEditor
+  content={newNoteContent}
+  onChange={setNewNoteContent}
+  className="mb-4"
+/>
                   <div className="mb-4 space-y-3">
                     <div className="flex gap-2">
                       <Input
@@ -1008,31 +1057,79 @@ export function NotesApp() {
                       : "space-y-4"
                   }
                 >
-                  {notesForSelectedDate.length === 0 ? (
-                    <Card className="p-12 text-center">
-                      <p className="text-muted-foreground">
-                        Aucune note pour cette date.
-                      </p>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Commencez à écrire pour créer votre première note.
-                      </p>
-                    </Card>
-                  ) : (
-                    notesForSelectedDate.map((note) => (
-                      <NoteCard key={note.id} note={note} />
-                    ))
-                  )}
-                </div>
-              </>
-            ) : (
-              // ---------------------------------
-              // NOUVELLE VUE TIMELINE
-              // ---------------------------------
-              <NotesTimeline />
-            )}
-          </main>
-        </div>
-      </div>
+                  {/* ▼▼▼ LOGIQUE DE CHARGEMENT MISE À JOUR ▼▼▼ */}
+              {isLoading ? (
+                 <Card className="p-12 text-center"><p className="text-muted-foreground">Chargement...</p></Card>
+              ) : safeNotes.length === 0 ? (
+                <Card className="p-12 text-center">
+                  <p className="text-muted-foreground">
+                    Aucune note pour cette date.
+                  </p>
+                  {/* ... */}
+                </Card>
+              ) : (
+                // On utilise 'safeNotes' directement
+                safeNotes.map((note) => (
+                  <NoteCard key={note.id} note={note} />
+                ))
+              )}
+              {/* ▲▲▲ FIN DE LA LOGIQUE ▲▲▲ */}
+            </div>
+          </>
+        ) : (
+            // ---------------------------------
+          // NOUVELLE VUE TIMELINE
+          // ---------------------------------
+          <>
+            {/* ▼▼▼ AJOUT DU SÉLECTEUR DE PLAGE ▼▼▼ */}
+            <div className="flex items-center gap-2 border-b border-border pb-4">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={"outline"}
+                    className="w-[280px] justify-start text-left font-normal"
+                  >
+                    <CalendarDays className="mr-2 h-4 w-4" />
+                    {timelineRange?.from ? (
+                      timelineRange.to ? (
+                        <>
+                          {format(timelineRange.from, "LLL dd, y", { locale: fr })} -{" "}
+                          {format(timelineRange.to, "LLL dd, y", { locale: fr })}
+                        </>
+                      ) : (
+                        format(timelineRange.from, "LLL dd, y", { locale: fr })
+                      )
+                    ) : (
+                      <span>Choisir une plage de dates</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={timelineRange?.from}
+                    selected={timelineRange}
+                    onSelect={setTimelineRange}
+                    numberOfMonths={2}
+                    locale={fr}
+                  />
+                </PopoverContent>
+              </Popover>
+              {timelineRange && (
+                 <Button variant="ghost" size="sm" onClick={() => setTimelineRange(undefined)}>
+                   Effacer
+                 </Button>
+              )}
+            </div>
+            {/* ▲▲▲ FIN DE L'AJOUT ▲▲▲ */}
+
+            <NotesTimeline />
+          </>
+        )}
+      </main>
     </div>
+  </div>
+</div>
   )
 }

@@ -123,3 +123,77 @@
     @apply bg-background text-foreground;
   }
 }
+
+
+/* ▼▼▼ AJOUTEZ CECI ▼▼▼ */
+
+/* Styles de base pour l'éditeur Tiptap */
+.prose {
+  /* Assure que les paragraphes ont un margin par défaut */
+  p {
+    margin-top: 1em;
+    margin-bottom: 1em;
+  }
+  
+  /* Retirer les marges du premier/dernier enfant dans l'éditeur */
+  > :first-child {
+    margin-top: 0;
+  }
+  > :last-child {
+    margin-bottom: 0;
+  }
+  
+  /* Styles pour les listes */
+  ul, ol {
+    padding-left: 1.75rem;
+    margin-top: 1em;
+    margin-bottom: 1em;
+  }
+  li {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+  }
+  
+  /* Styles pour les listes de tâches */
+  ul[data-type='taskList'] {
+    list-style: none;
+    padding: 0;
+  }
+
+  ul[data-type='taskList'] li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  ul[data-type='taskList'] li > label {
+    flex: 0 0 auto;
+  }
+
+  ul[data-type='taskList'] li > div {
+    flex: 1 1 auto;
+  }
+  
+  /* Style de la case à cocher */
+  input[type='checkbox'] {
+    cursor: pointer;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.25rem;
+    border-color: oklch(var(--border));
+  }
+  
+  input[type='checkbox']:checked {
+     /* Adaptez cette couleur à votre 'primary' */
+    background-color: oklch(var(--primary)); 
+    border-color: oklch(var(--primary));
+  }
+  
+  /* Style pour le texte d'une tâche cochée */
+  ul[data-type='taskList'] li[data-checked='true'] > div > p {
+    text-decoration: line-through;
+    color: oklch(var(--muted-foreground));
+  }
+}
+
+/* ▲▲▲ FIN DES AJOUTS ▲▲▲ */
