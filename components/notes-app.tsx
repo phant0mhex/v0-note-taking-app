@@ -10,15 +10,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog" // Import Dialog components
-import {
   Plus,
   Trash2,
   CalendarIcon,
@@ -41,7 +32,7 @@ import { fr } from "date-fns/locale"
 import { useTheme } from "next-themes"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Login } from "@/components/login"
-import jsPDF from "jspdf"
+import jsPDF from "jspdf" // Importation de jsPDF
 
 interface Note {
   id: number
@@ -52,7 +43,7 @@ interface Note {
   is_pinned: boolean
   is_archived: boolean
   tags: string[]
-  author: string | null
+  author: string | null // Added author field
 }
 
 const TAG_COLORS = [
@@ -121,11 +112,13 @@ const exportNotesToPDF = (notesToExport: Note[], selectedDate: Date) => {
 }
 
 const handleLogin = (user: string, setCurrentUser: React.Dispatch<React.SetStateAction<string | null>>) => {
+  // Implement login functionality here
   localStorage.setItem("enculator_user", user)
   setCurrentUser(user)
 }
 
 const handleLogout = (setCurrentUser: React.Dispatch<React.SetStateAction<string | null>>) => {
+  // Implement logout functionality here
   localStorage.removeItem("enculator_user")
   setCurrentUser(null)
 }
@@ -145,21 +138,17 @@ export function NotesApp() {
   const [newNoteContent, setNewNoteContent] = useState("")
   const [newNoteTags, setNewNoteTags] = useState<string[]>([])
   const [newTagInput, setNewTagInput] = useState("")
+  const [editTagInput, setEditTagInput] = useState("")
   const [showCalendar, setShowCalendar] = useState(false)
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
+  const [editContent, setEditContent] = useState("")
+  const [editTags, setEditTags] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [showArchived, setShowArchived] = useState(false)
   const [sortBy, setSortBy] = useState<"date" | "updated" | "alpha">("date")
   const [viewMode, setViewMode] = useState<"grid" | "list">("list")
   const { theme, setTheme } = useTheme()
-
-  // --- State for Edit Modal ---
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [noteToEditInModal, setNoteToEditInModal] = useState<Note | null>(null)
-  const [modalEditContent, setModalEditContent] = useState("")
-  const [modalEditTags, setModalEditTags] = useState<string[]>([])
-  const [modalEditTagInput, setModalEditTagInput] = useState("")
-  // --- End State for Edit Modal ---
 
   const apiUrl = useMemo(() => {
     const params = new URLSearchParams()
@@ -176,14 +165,15 @@ export function NotesApp() {
     isLoading,
     mutate,
   } = useSWR<Note[]>(apiUrl, fetcher, {
-    refreshInterval: 5000,
-    revalidateOnFocus: true,
-    revalidateOnReconnect: true,
+    refreshInterval: 5000, // Refresh every 5 seconds
+    revalidateOnFocus: true, // Revalidate when window regains focus
+    revalidateOnReconnect: true, // Revalidate when reconnecting
     fallbackData: [],
   })
 
   const safeNotes = notes || []
 
+  // Notes pour la date sélectionnée (TOUS utilisateurs)
   const notesForSelectedDate = useMemo(() => {
     const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
     return safeNotes.filter((note) => note.date === selectedDateStr)
@@ -192,7 +182,10 @@ export function NotesApp() {
   const addNote = async () => {
     if (newNoteContent.trim()) {
       try {
-        const dateToSend = format(selectedDate, "yyyy-MM-dd")
+        const year = selectedDate.getFullYear()
+        const month = String(selectedDate.getMonth() + 1).padStart(2, "0")
+        const day = String(selectedDate.getDate()).padStart(2, "0")
+        const dateToSend = `${year}-${month}-${day}`
 
         const response = await fetch("/api/notes", {
           method: "POST",
@@ -228,11 +221,11 @@ export function NotesApp() {
       if (response.ok) {
         mutate()
       } else {
-        mutate() // Revert optimistic update on failure
+        mutate()
       }
     } catch (error) {
       console.error("[v0] Error deleting note:", error)
-      mutate() // Revert optimistic update on error
+      mutate()
     }
   }
 
@@ -242,16 +235,26 @@ export function NotesApp() {
         safeNotes.map((n) => (n.id === note.id ? { ...n, is_pinned: !n.is_pinned } : n)),
         false,
       )
+
       const response = await fetch(`/api/notes/${note.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_pinned: !note.is_pinned }), // Only send changed field
+        body: JSON.stringify({
+          content: note.content,
+          is_pinned: !note.is_pinned,
+          tags: note.tags,
+          is_archived: note.is_archived,
+        }),
       })
-      if (!response.ok) mutate() // Revert optimistic update on failure
-      else mutate() // Revalidate after successful update
+
+      if (response.ok) {
+        mutate()
+      } else {
+        mutate()
+      }
     } catch (error) {
       console.error("[v0] Error toggling pin:", error)
-      mutate() // Revert optimistic update on error
+      mutate()
     }
   }
 
@@ -261,110 +264,115 @@ export function NotesApp() {
         safeNotes.map((n) => (n.id === note.id ? { ...n, is_archived: !n.is_archived } : n)),
         false,
       )
+
       const response = await fetch(`/api/notes/${note.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_archived: !note.is_archived }), // Only send changed field
+        body: JSON.stringify({
+          content: note.content,
+          is_archived: !note.is_archived,
+          tags: note.tags,
+          is_pinned: note.is_pinned,
+        }),
       })
-      if (!response.ok) mutate() // Revert optimistic update on failure
-      else mutate() // Revalidate after successful update
+
+      if (response.ok) {
+        mutate()
+      } else {
+        mutate()
+      }
     } catch (error) {
       console.error("[v0] Error toggling archive:", error)
-      mutate() // Revert optimistic update on error
+      mutate()
     }
   }
 
-  // --- Modal Functions ---
   const startEditing = (note: Note) => {
-    setNoteToEditInModal(note)
-    setModalEditContent(note.content)
-    setModalEditTags(note.tags || [])
-    setModalEditTagInput("")
-    setIsModalOpen(true)
+    setEditingNoteId(note.id)
+    setEditContent(note.content)
+    setEditTags(note.tags || [])
   }
 
-  const saveEdit = async () => {
-    if (noteToEditInModal && modalEditContent.trim()) {
-      const id = noteToEditInModal.id
+  const saveEdit = async (id: number) => {
+    if (editContent.trim()) {
       try {
-        // Optimistic update
-        mutate(
-          safeNotes.map((n) =>
-            n.id === id ? { ...n, content: modalEditContent, tags: modalEditTags } : n,
-          ),
-          false,
-        )
         const response = await fetch(`/api/notes/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            content: modalEditContent,
-            tags: modalEditTags,
+            content: editContent,
+            tags: editTags,
           }),
         })
 
         if (response.ok) {
-          closeModal()
-          mutate() // Revalidate after successful save
-        } else {
-          console.error("Failed to save edit")
-          mutate() // Revert optimistic update on failure
+          const updatedNote = await response.json()
+          mutate(
+            safeNotes.map((note) => (note.id === id ? updatedNote : note)),
+            false,
+          )
+          setEditingNoteId(null)
+          setEditContent("")
+          setEditTags([])
+          mutate()
         }
       } catch (error) {
         console.error("[v0] Error updating note:", error)
-        mutate() // Revert optimistic update on error
       }
     }
   }
 
-  const closeModal = () => {
-    setIsModalOpen(false)
-    setNoteToEditInModal(null)
-    setModalEditContent("")
-    setModalEditTags([])
-    setModalEditTagInput("")
+  const cancelEdit = () => {
+    setEditingNoteId(null)
+    setEditContent("")
+    setEditTags([])
   }
-  // --- End Modal Functions ---
 
-  const toggleTag = (tag: string, context: "new" | "modal") => {
-    if (context === "modal") {
-      setModalEditTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+  const toggleTag = (tag: string, isEditing = false) => {
+    if (isEditing) {
+      setEditTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
     } else {
       setNewNoteTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
     }
   }
 
-  const addCustomTag = (context: "new" | "modal") => {
-    const input = context === "modal" ? modalEditTagInput : newTagInput
-    const tags = context === "modal" ? modalEditTags : newNoteTags
-    const setTags = context === "modal" ? setModalEditTags : setNewNoteTags
-    const setInput = context === "modal" ? setModalEditTagInput : setNewTagInput
+  const addCustomTag = (isEditing = false) => {
+    const input = isEditing ? editTagInput : newTagInput
     const trimmedTag = input.trim()
 
-    if (trimmedTag && trimmedTag.length > 0 && !tags.includes(trimmedTag)) {
-      setTags([...tags, trimmedTag])
-      setInput("")
-    } else if (trimmedTag) {
-      setInput("") // Clear input even if tag exists
+    if (trimmedTag && trimmedTag.length > 0) {
+      if (isEditing) {
+        if (!editTags.includes(trimmedTag)) {
+          setEditTags([...editTags, trimmedTag])
+        }
+        setEditTagInput("")
+      } else {
+        if (!newNoteTags.includes(trimmedTag)) {
+          setNewNoteTags([...newNoteTags, trimmedTag])
+        }
+        setNewTagInput("")
+      }
     }
   }
 
   const getTagColor = (tag: string) => {
-    const allUniqueTags = Array.from(new Set(safeNotes.flatMap((n) => n.tags || [])))
-    const index = allUniqueTags.indexOf(tag)
+    const allTags = Array.from(new Set(safeNotes.flatMap((n) => n.tags || [])))
+    const index = allTags.indexOf(tag)
     return TAG_COLORS[index % TAG_COLORS.length]
   }
 
-  const allTagsForCurrentUser = useMemo(() => {
+  // Tags pour l'utilisateur courant (pour le filtre)
+  const allTags = useMemo(() => {
     const tagSet = new Set<string>()
     safeNotes
-      .filter((note) => note.author === currentUser)
+      .filter((note) => note.author === currentUser) // Filtre les tags pour l'utilisateur courant
       .forEach((note) => note.tags?.forEach((tag) => tagSet.add(tag)))
     return Array.from(tagSet)
   }, [safeNotes, currentUser])
 
-  const pinnedNotesForCurrentUser = safeNotes.filter((n) => n.is_pinned && !n.is_archived && n.author === currentUser)
-  const activeNotesCountForCurrentUser = safeNotes.filter((n) => !n.is_archived && n.author === currentUser).length
+  // Stats pour l'utilisateur courant
+  const pinnedNotes = safeNotes.filter((n) => n.is_pinned && !n.is_archived && n.author === currentUser)
+  const activeNotesCount = safeNotes.filter((n) => !n.is_archived && n.author === currentUser).length
 
   if (isLoading) {
     return (
@@ -457,7 +465,7 @@ export function NotesApp() {
         </div>
 
         {/* Tags Filter (pour l'utilisateur courant) */}
-        {allTagsForCurrentUser.length > 0 && (
+        {allTags.length > 0 && (
           <div className="mb-6 flex flex-wrap gap-2">
             <Button
               variant={selectedTag === null ? "default" : "outline"}
@@ -466,7 +474,7 @@ export function NotesApp() {
             >
               Tous
             </Button>
-            {allTagsForCurrentUser.map((tag) => (
+            {allTags.map((tag) => (
               <Button
                 key={tag}
                 variant={selectedTag === tag ? "default" : "outline"}
@@ -481,12 +489,17 @@ export function NotesApp() {
         )}
 
         <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
-          {/* Sidebar */}
+          {/* Sidebar - Calendar */}
           <aside className="space-y-6">
             <Card className="p-6">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Calendrier</h2>
-                <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setShowCalendar(!showCalendar)}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="lg:hidden"
+                  onClick={() => setShowCalendar(!showCalendar)}
+                >
                   <CalendarIcon className="h-4 w-4" />
                 </Button>
               </div>
@@ -497,23 +510,26 @@ export function NotesApp() {
                   onSelect={(date) => date && setSelectedDate(date)}
                   locale={fr}
                   className="rounded-md"
+                  modifiers={{ hasNotes: allTags }} // Continue d'utiliser les tags de l'utilisateur pour le style
+                  modifiersStyles={{ hasNotes: { fontWeight: "bold", textDecoration: "underline" } }}
                 />
               </div>
             </Card>
 
+            {/* Stats (pour l'utilisateur courant) */}
             <Card className="hidden p-6 lg:block">
-              <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">Statistiques (vous)</h3>
+              <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">Statistiques</h3>
               <div className="space-y-3">
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{activeNotesCountForCurrentUser}</p>
+                  <p className="text-2xl font-bold text-foreground">{activeNotesCount}</p>
                   <p className="text-sm text-muted-foreground">Notes actives</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{pinnedNotesForCurrentUser.length}</p>
+                  <p className="text-2xl font-bold text-foreground">{pinnedNotes.length}</p>
                   <p className="text-sm text-muted-foreground">Notes épinglées</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{allTagsForCurrentUser.length}</p>
+                  <p className="text-2xl font-bold text-foreground">{allTags.length}</p>
                   <p className="text-sm text-muted-foreground">Tags uniques</p>
                 </div>
               </div>
@@ -532,7 +548,7 @@ export function NotesApp() {
               </p>
             </div>
 
-            {/* New Note Form */}
+            {/* New Note Form (pour l'utilisateur courant) */}
             <Card className="p-6">
               <h3 className="mb-4 text-sm font-medium uppercase tracking-wide text-muted-foreground">Nouvelle note</h3>
               <Textarea
@@ -540,35 +556,61 @@ export function NotesApp() {
                 value={newNoteContent}
                 onChange={(e) => setNewNoteContent(e.target.value)}
                 className="mb-4 min-h-[120px] resize-none"
-                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { addNote() } }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    addNote()
+                  }
+                }}
               />
               <div className="mb-4 space-y-3">
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Ajouter un tag..."
+                    placeholder="Ajouter un tag personnalisé..."
                     value={newTagInput}
                     onChange={(e) => setNewTagInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomTag("new") } }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        addCustomTag(false)
+                      }
+                    }}
                     className="flex-1"
                   />
-                  <Button type="button" variant="outline" size="sm" onClick={() => addCustomTag("new")} disabled={!newTagInput.trim()}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addCustomTag(false)}
+                    disabled={!newTagInput.trim()}
+                  >
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
                 {newNoteTags.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {newNoteTags.map((tag) => (
-                      <Badge key={tag} variant="default" className={`cursor-pointer ${getTagColor(tag)}`} onClick={() => toggleTag(tag, "new")}>
-                        {tag} <X className="ml-1 h-3 w-3" />
+                      <Badge
+                        key={tag}
+                        variant="default"
+                        className={`cursor-pointer ${getTagColor(tag)}`}
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tag}
+                        <X className="ml-1 h-3 w-3" />
                       </Badge>
                     ))}
                   </div>
                 )}
-                {allTagsForCurrentUser.length > 0 && (
+                {allTags.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    <p className="w-full text-xs text-muted-foreground">Vos tags existants :</p>
-                    {allTagsForCurrentUser.map((tag) => (
-                      <Badge key={tag} variant={newNoteTags.includes(tag) ? "default" : "outline"} className={`cursor-pointer ${newNoteTags.includes(tag) ? getTagColor(tag) : ""}`} onClick={() => toggleTag(tag, "new")}>
+                    <p className="w-full text-xs text-muted-foreground">Tags existants :</p>
+                    {allTags.map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant={newNoteTags.includes(tag) ? "default" : "outline"}
+                        className={`cursor-pointer ${newNoteTags.includes(tag) ? getTagColor(tag) : ""}`}
+                        onClick={() => toggleTag(tag)}
+                      >
                         {tag}
                       </Badge>
                     ))}
@@ -577,55 +619,149 @@ export function NotesApp() {
               </div>
               <div className="flex justify-end">
                 <Button onClick={addNote} disabled={!newNoteContent.trim()}>
-                  <Plus className="mr-2 h-4 w-4" /> Ajouter la note
+                  <Plus className="mr-2 h-4 w-4" />
+                  Ajouter la note
                 </Button>
               </div>
             </Card>
 
-            {/* Notes List */}
+            {/* Notes List (pour TOUS les utilisateurs) */}
             <div className={viewMode === "grid" ? "grid gap-4 md:grid-cols-2" : "space-y-4"}>
               {notesForSelectedDate.length === 0 ? (
                 <Card className="p-12 text-center">
                   <p className="text-muted-foreground">Aucune note pour cette date.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Commencez à écrire pour créer votre première note.
+                  </p>
                 </Card>
               ) : (
                 notesForSelectedDate.map((note) => (
-                  <Card key={note.id} className={`p-6 transition-shadow hover:shadow-md ${note.is_pinned ? "ring-2 ring-primary" : ""}`}>
-                    {/* --- Always render display mode --- */}
-                    <div>
-                      <div className="mb-3 flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          {note.tags && note.tags.length > 0 && (
-                            <div className="mb-2 flex flex-wrap gap-1">
-                              {note.tags.map((tag) => ( <Badge key={tag} variant="secondary" className={getTagColor(tag)}>{tag}</Badge> ))}
+                  <Card
+                    key={note.id}
+                    className={`p-6 transition-shadow hover:shadow-md ${note.is_pinned ? "ring-2 ring-primary" : ""}`}
+                  >
+                    {editingNoteId === note.id ? (
+                      <div className="space-y-4">
+                        <Textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          className="min-h-[120px] resize-none"
+                          autoFocus
+                        />
+                        <div className="space-y-3">
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Ajouter un tag personnalisé..."
+                              value={editTagInput}
+                              onChange={(e) => setEditTagInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault()
+                                  addCustomTag(true)
+                                }
+                              }}
+                              className="flex-1"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => addCustomTag(true)}
+                              disabled={!editTagInput.trim()}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {editTags.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {editTags.map((tag) => (
+                                <Badge
+                                  key={tag}
+                                  variant="default"
+                                  className={`cursor-pointer ${getTagColor(tag)}`}
+                                  onClick={() => toggleTag(tag, true)}
+                                >
+                                  {tag}
+                                  <X className="ml-1 h-3 w-3" />
+                                </Badge>
+                              ))}
                             </div>
                           )}
-                          <p className="whitespace-pre-wrap text-foreground leading-relaxed">{note.content}</p>
-                          <p className="mt-3 text-xs text-muted-foreground">
-                            {note.author && <span className="font-medium">{note.author}</span>}
-                            {note.author && " • "}
-                            Créée: {format(new Date(note.created_at), "HH:mm", { locale: fr })} • Modifiée:{" "}
-                            {format(new Date(note.updated_at), "HH:mm", { locale: fr })}
-                          </p>
+                          {allTags.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              <p className="w-full text-xs text-muted-foreground">Tags existants :</p>
+                              {allTags.map((tag) => (
+                                <Badge
+                                  key={tag}
+                                  variant={editTags.includes(tag) ? "default" : "outline"}
+                                  className={`cursor-pointer ${editTags.includes(tag) ? getTagColor(tag) : ""}`}
+                                  onClick={() => toggleTag(tag, true)}
+                                >
+                                  {tag}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => togglePin(note)} title={note.is_pinned ? "Désépingler" : "Épingler"}>
-                            <Pin className={`h-4 w-4 ${note.is_pinned ? "fill-current" : ""}`} />
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="sm" onClick={cancelEdit}>
+                            <X className="mr-2 h-4 w-4" />
+                            Annuler
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => toggleArchive(note)} title={note.is_archived ? "Désarchiver" : "Archiver"}>
-                            <Archive className="h-4 w-4" />
-                          </Button>
-                          {/* --- Edit button now opens modal --- */}
-                          <Button variant="ghost" size="icon" onClick={() => startEditing(note)} title="Éditer">
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)} title="Supprimer">
-                            <Trash2 className="h-4 w-4 text-destructive" />
+                          <Button size="sm" onClick={() => saveEdit(note.id)} disabled={!editContent.trim()}>
+                            <Check className="mr-2 h-4 w-4" />
+                            Enregistrer
                           </Button>
                         </div>
                       </div>
-                    </div>
-                    {/* --- End display mode --- */}
+                    ) : (
+                      <div>
+                        <div className="mb-3 flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            {note.tags && note.tags.length > 0 && (
+                              <div className="mb-2 flex flex-wrap gap-1">
+                                {note.tags.map((tag) => (
+                                  <Badge key={tag} variant="secondary" className={getTagColor(tag)}>
+                                    {tag}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                            <p className="whitespace-pre-wrap text-foreground leading-relaxed">{note.content}</p>
+                            <p className="mt-3 text-xs text-muted-foreground">
+                              {note.author && <span className="font-medium">{note.author}</span>}
+                              {note.author && " • "}
+                              Créée: {format(new Date(note.created_at), "HH:mm", { locale: fr })} • Modifiée:{" "}
+                              {format(new Date(note.updated_at), "HH:mm", { locale: fr })}
+                            </p>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => togglePin(note)}
+                              title={note.is_pinned ? "Désépingler" : "Épingler"}
+                            >
+                              <Pin className={`h-4 w-4 ${note.is_pinned ? "fill-current" : ""}`} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => toggleArchive(note)}
+                              title={note.is_archived ? "Désarchiver" : "Archiver"}
+                            >
+                              <Archive className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => startEditing(note)} title="Éditer">
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)} title="Supprimer">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </Card>
                 ))
               )}
@@ -633,65 +769,6 @@ export function NotesApp() {
           </main>
         </div>
       </div>
-
-      {/* --- Edit Modal --- */}
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="sm:max-w-[625px]">
-          <DialogHeader>
-            <DialogTitle>Éditer la note</DialogTitle>
-            <DialogDescription>Modifiez le contenu et les tags de votre note.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <Textarea
-              value={modalEditContent}
-              onChange={(e) => setModalEditContent(e.target.value)}
-              className="min-h-[150px] resize-none"
-              autoFocus
-            />
-            <div className="space-y-3">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Ajouter un tag..."
-                  value={modalEditTagInput}
-                  onChange={(e) => setModalEditTagInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomTag("modal") } }}
-                  className="flex-1"
-                />
-                <Button type="button" variant="outline" size="sm" onClick={() => addCustomTag("modal")} disabled={!modalEditTagInput.trim()}>
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-              {modalEditTags.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {modalEditTags.map((tag) => (
-                    <Badge key={tag} variant="default" className={`cursor-pointer ${getTagColor(tag)}`} onClick={() => toggleTag(tag, "modal")}>
-                      {tag} <X className="ml-1 h-3 w-3" />
-                    </Badge>
-                  ))}
-                </div>
-              )}
-              {allTagsForCurrentUser.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  <p className="w-full text-xs text-muted-foreground">Vos tags existants :</p>
-                  {allTagsForCurrentUser.map((tag) => (
-                    <Badge key={tag} variant={modalEditTags.includes(tag) ? "default" : "outline"} className={`cursor-pointer ${modalEditTags.includes(tag) ? getTagColor(tag) : ""}`} onClick={() => toggleTag(tag, "modal")}>
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline" onClick={closeModal}> Annuler </Button>
-            </DialogClose>
-            <Button type="button" onClick={saveEdit} disabled={!modalEditContent.trim()}> Enregistrer </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {/* --- End Edit Modal --- */}
-
     </div>
   )
 }
