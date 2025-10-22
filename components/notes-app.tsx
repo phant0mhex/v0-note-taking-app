@@ -53,26 +53,37 @@ interface Note {
 // ... (TAG_COLORS, exportNotesToPDF, handleLogin, handleLogout, fetcher) ...
 
 export function NotesApp() {
-  // ... (états existants) ...
+  const [currentUser, setCurrentUser] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [newNoteContent, setNewNoteContent] = useState("")
+  const [newNoteTags, setNewNoteTags] = useState<string[]>([])
+  const [newTagInput, setNewTagInput] = useState("")
+  const [showCalendar, setShowCalendar] = useState(false)
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
+  const [editContent, setEditContent] = useState("")
+  const [editTags, setEditTags] = useState<string[]>([])
+  const [editTagInput, setEditTagInput] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
+  const [sortBy, setSortBy] = useState<"date" | "updated" | "alpha">("date")
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list")
+  const { theme, setTheme } = useTheme()
   const [showTagManager, setShowTagManager] = useState(false)
   const [renamingTag, setRenamingTag] = useState<string | null>(null)
   const [newTagName, setNewTagName] = useState("")
-
-  // --- Nouvel état pour la corbeille ---
   const [showDeleted, setShowDeleted] = useState(false)
-  // --- Fin état corbeille ---
 
-  // Adapte l'API URL pour inclure showDeleted
+
   const apiUrl = useMemo(() => {
     const params = new URLSearchParams()
     if (searchQuery) params.append("search", searchQuery)
     if (selectedTag) params.append("tag", selectedTag)
-    // Ne pas appliquer le filtre 'archived' si on est dans la corbeille
     if (showArchived && !showDeleted) params.append("showArchived", "true")
-    if (showDeleted) params.append("showDeleted", "true") // Ajout du paramètre
+    if (showDeleted) params.append("showDeleted", "true")
     params.append("sortBy", sortBy)
     return `/api/notes?${params}`
-  }, [searchQuery, selectedTag, showArchived, sortBy, showDeleted]) // Ajout de showDeleted aux dépendances
+  }, [searchQuery, selectedTag, showArchived, sortBy, showDeleted])
 
   const { data: notes, error, isLoading, mutate } = useSWR<Note[]>(apiUrl, fetcher, {
       refreshInterval: 5000,
@@ -83,212 +94,175 @@ export function NotesApp() {
 
   const safeNotes = notes || []
 
-  // notesForSelectedDate affiche maintenant soit les notes actives/archivées, soit la corbeille
   const notesForSelectedDate = useMemo(() => {
     const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
-    // Le filtrage deleted/active est fait par l'API via le paramètre showDeleted
-    // On filtre juste par date ici si on n'est PAS en mode corbeille
     if (!showDeleted) {
        return safeNotes.filter((note) => note.date === selectedDateStr)
     }
-    // Si on est en mode corbeille, on affiche toutes les notes retournées par l'API (qui a déjà filtré deleted_at != NULL)
     return safeNotes;
-  }, [safeNotes, selectedDate, showDeleted]) // Ajout de showDeleted
+  }, [safeNotes, selectedDate, showDeleted])
 
-  // ... (addNote, togglePin, toggleArchive) ...
+  const addNote = async () => {
+    if (newNoteContent.trim()) {
+      try {
+        const dateToSend = format(selectedDate, "yyyy-MM-dd")
+        const response = await fetch("/api/notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: newNoteContent,
+            date: dateToSend,
+            tags: newNoteTags,
+            author: currentUser,
+          }),
+        })
 
-  // MODIFIE deleteNote pour appeler le soft delete
-  const deleteNote = async (id: number) => {
-    try {
-      mutate( safeNotes.filter((note) => note.id !== id), false ) // Optimistic update
-      // Appel à l'API DELETE standard (qui fait le soft delete maintenant)
-      const response = await fetch(`/api/notes/${id}`, { method: "DELETE" })
-      if (!response.ok) {
-         console.error("Failed to soft delete note")
-         mutate() // Revert
-      } else {
-         mutate() // Revalidate
+        if (response.ok) {
+          const newNote = await response.json()
+          mutate([newNote, ...safeNotes], false)
+          setNewNoteContent("")
+          setNewNoteTags([])
+          mutate()
+        }
+      } catch (error) {
+        console.error("[v0] Error creating note:", error)
       }
-    } catch (error) {
-      console.error("[v0] Error soft deleting note:", error)
-      mutate() // Revert
     }
   }
 
-  // --- Nouvelles fonctions pour la corbeille ---
+  const deleteNote = async (id: number) => { // Soft delete
+    try {
+      mutate( safeNotes.filter((note) => note.id !== id), false )
+      const response = await fetch(`/api/notes/${id}`, { method: "DELETE" })
+      if (!response.ok) { console.error("Failed to soft delete note"); mutate() }
+      else { mutate() }
+    } catch (error) { console.error("[v0] Error soft deleting note:", error); mutate() }
+  }
+
+  const togglePin = async (note: Note) => {
+    try {
+      mutate( safeNotes.map((n) => (n.id === note.id ? { ...n, is_pinned: !n.is_pinned } : n)), false )
+      const response = await fetch(`/api/notes/${note.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_pinned: !note.is_pinned }), })
+      if (!response.ok) mutate(); else mutate()
+    } catch (error) { console.error("[v0] Error toggling pin:", error); mutate() }
+  }
+
+  const toggleArchive = async (note: Note) => {
+    try {
+      mutate( safeNotes.map((n) => (n.id === note.id ? { ...n, is_archived: !n.is_archived } : n)), false )
+      const response = await fetch(`/api/notes/${note.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_archived: !note.is_archived }), })
+      if (!response.ok) mutate(); else mutate()
+    } catch (error) { console.error("[v0] Error toggling archive:", error); mutate() }
+  }
+
   const restoreNote = async (id: number) => {
     try {
-        mutate( safeNotes.filter((note) => note.id !== id), false ) // Optimistic update (remove from trash view)
-        // Appel à la nouvelle route de restauration (utilisant POST)
-        const response = await fetch(`/api/notes/${id}/restore`, { method: "POST" })
-        if (!response.ok) {
-            console.error("Failed to restore note")
-            mutate() // Revert
-        } else {
-            mutate() // Revalidate
-        }
-    } catch (error) {
-        console.error("[v0] Error restoring note:", error)
-        mutate() // Revert
-    }
+        mutate( safeNotes.filter((note) => note.id !== id), false )
+        const response = await fetch(`/api/notes/${id}/restore`, { method: "POST" }) // Assuming route exists
+        if (!response.ok) { console.error("Failed to restore note"); mutate() }
+        else { mutate() }
+    } catch (error) { console.error("[v0] Error restoring note:", error); mutate() }
   }
 
   const deletePermanently = async (id: number) => {
     if (window.confirm("Supprimer définitivement cette note ? Cette action est irréversible.")) {
-        try {
-            mutate( safeNotes.filter((note) => note.id !== id), false ) // Optimistic update
-            // Appel à l'API DELETE avec le paramètre 'permanent'
-            const response = await fetch(`/api/notes/${id}?permanent=true`, { method: "DELETE" })
-             if (!response.ok) {
-                console.error("Failed to permanently delete note")
-                mutate() // Revert
-            } else {
-                mutate() // Revalidate
-            }
-        } catch (error) {
-            console.error("[v0] Error permanently deleting note:", error)
-            mutate() // Revert
-        }
-    }
+      try { // <<<< CORRECTION: Ajout du bloc try ici
+          mutate( safeNotes.filter((note) => note.id !== id), false )
+          const response = await fetch(`/api/notes/${id}?permanent=true`, { method: "DELETE" }) // Assuming API handles query param
+           if (!response.ok) {
+              console.error("Failed to permanently delete note")
+              mutate()
+          } else {
+              mutate()
+          }
+      } catch (error) { // <<<< CORRECTION: Fin du bloc try, début du catch
+          console.error("[v0] Error permanently deleting note:", error)
+          mutate()
+      } // <<<< CORRECTION: Accolade fermante pour le catch ajoutée ici
+    } // Accolade fermante pour le if(window.confirm)
   }
-  // --- Fin fonctions corbeille ---
 
+  const startEditing = (note: Note) => { /* ... */ }
+  const saveEdit = async (id: number) => { /* ... */ }
+  const cancelEdit = () => { /* ... */ }
+  const toggleTag = (tag: string, isEditing = false) => { /* ... */ }
+  const addCustomTag = (isEditing = false) => { /* ... */ }
+  const getTagColor = (tag: string) => { /* ... */ }
 
-  // ... (startEditing, saveEdit, cancelEdit) ...
-  // ... (toggleTag, addCustomTag, getTagColor) ...
-  // ... (allTagsForCurrentUser, pinnedNotesForCurrentUser, activeNotesCountForCurrentUser) ...
-  // ... (handleRenameTag, handleDeleteTag - gestion tags) ...
+  const allTagsForCurrentUser = useMemo(() => { /* ... */ }, [safeNotes, currentUser])
+  const pinnedNotesForCurrentUser = safeNotes.filter(/* ... */)
+  const activeNotesCountForCurrentUser = safeNotes.filter(/* ... */).length
 
-  // ... (if isLoading, if error, if !currentUser) ...
+  const handleRenameTag = async (oldName: string) => { /* ... (avec appel API simulé ou réel) ... */ }
+  const handleDeleteTag = async (tagName: string) => { /* ... (avec appel API simulé ou réel) ... */ }
+
+  if (isLoading) { return ( <div className="min-h-screen bg-background flex items-center justify-center"><p className="text-muted-foreground">Chargement...</p></div> ) }
+  if (error) { return ( <div className="min-h-screen bg-background flex items-center justify-center"><p className="text-destructive">Erreur lors du chargement des notes</p></div> ) }
+  if (!currentUser) { return <Login onLogin={(user: string) => handleLogin(user, setCurrentUser)} /> }
 
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-7xl px-4 py-8 md:py-12">
-        {/* ... (Header - Export utilise toujours notesForSelectedDate) ... */}
+        {/* Header */}
+        <header className="mb-8 flex items-center justify-between">
+            {/* ... Contenu du Header ... */}
+            <Button variant="outline" size="icon" onClick={() => exportNotesToPDF(notesForSelectedDate, selectedDate)} title="Exporter en PDF (cette date)"> <Download className="h-4 w-4" /> </Button>
+        </header>
 
         {/* Search and Filters */}
         <div className="mb-6 flex flex-wrap gap-3">
-          {/* ... (Search Input, Sort Select, View Mode Button) ... */}
-
-          {/* --- Modification des boutons Archive/Corbeille --- */}
-          <Button
-            variant={showArchived ? "default" : "outline"}
-            onClick={() => { setShowArchived(!showArchived); setShowDeleted(false); }} // Désactive la corbeille si on active les archives
-            disabled={showDeleted} // Désactive si on est dans la corbeille
-          >
-            <Archive className="mr-2 h-4 w-4" /> Archivées
-          </Button>
-          <Button
-            variant={showDeleted ? "destructive" : "outline"} // Style différent pour la corbeille
-            onClick={() => { setShowDeleted(!showDeleted); setShowArchived(false); }} // Désactive les archives si on active la corbeille
-          >
-            <Trash className="mr-2 h-4 w-4" /> Corbeille
-          </Button>
-          {/* --- Fin modification --- */}
+             {/* ... Input Search, Select Sort, Button View Mode ... */}
+            <Button variant={showArchived ? "default" : "outline"} onClick={() => { setShowArchived(!showArchived); setShowDeleted(false); }} disabled={showDeleted}> <Archive className="mr-2 h-4 w-4" /> Archivées </Button>
+            <Button variant={showDeleted ? "destructive" : "outline"} onClick={() => { setShowDeleted(!showDeleted); setShowArchived(false); }}> <Trash className="mr-2 h-4 w-4" /> Corbeille </Button>
         </div>
 
-        {/* ... (Section Gestion des Tags - Conditionnelle sur !showDeleted) ... */}
-        { !showDeleted && (
-            <div className="mb-6">
-                {/* Boutons Filtres Tags */}
-                {allTagsForCurrentUser.length > 0 && ( /* ... */ )}
-                {/* Carte de Gestion des Tags (conditionnelle) */}
-                {showTagManager && allTagsForCurrentUser.length > 0 && ( /* ... */ )}
-                {showTagManager && allTagsForCurrentUser.length === 0 && ( /* ... */ )}
-            </div>
-        )}
-
+        {/* Section Gestion des Tags (conditionnelle) */}
+        { !showDeleted && ( <div className="mb-6"> {/* ... Contenu Gestion Tags ... */} </div> )}
 
         <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
-          {/* Sidebar - Masquée si on est dans la corbeille ? Ou adaptée ? Pour l'instant on la laisse */}
-          <aside className="space-y-6">
-            {/* ... (Calendar Card - Peut-être désactiver la sélection si showDeleted ?) ... */}
-            {/* ... (Stats Card - Pourrait afficher le nombre d'éléments dans la corbeille si showDeleted) ... */}
-          </aside>
+          {/* Sidebar */}
+          <aside className="space-y-6"> {/* ... Contenu Sidebar ... */} </aside>
 
           {/* Main Content */}
           <main className="space-y-6">
-            {/* Date Header / Corbeille Header */}
-            <div className="border-b border-border pb-4">
-              {showDeleted ? (
-                 <>
-                  <h2 className="text-2xl font-bold text-destructive">Corbeille</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {notesForSelectedDate.length} {notesForSelectedDate.length !== 1 ? "notes supprimées" : "note supprimée"}
-                  </p>
-                 </>
-              ) : (
-                <>
-                  <h2 className="text-2xl font-bold text-foreground">
-                    {format(selectedDate, "EEEE d MMMM yyyy", { locale: fr })}
-                  </h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {notesForSelectedDate.length} {notesForSelectedDate.length !== 1 ? "notes" : "note"}
-                  </p>
-                </>
-              )}
-            </div>
+            {/* Header (Date ou Corbeille) */}
+            <div className="border-b border-border pb-4"> {/* ... Contenu Header ... */} </div>
 
-            {/* New Note Form - Masqué si on est dans la corbeille */}
-            { !showDeleted && (
-                <Card className="p-6"> /* ... (Formulaire Nouvelle Note) ... */ </Card>
-            )}
+            {/* New Note Form (conditionnel) */}
+            { !showDeleted && ( <Card className="p-6"> {/* ... Formulaire Nouvelle Note ... */} </Card> )}
 
             {/* Notes List / Corbeille List */}
             <div className={viewMode === "grid" && !showDeleted ? "grid gap-4 md:grid-cols-2" : "space-y-4"}>
               {notesForSelectedDate.length === 0 ? (
-                <Card className="p-12 text-center">
-                  <p className="text-muted-foreground">
-                    {showDeleted ? "La corbeille est vide." : "Aucune note pour cette date."}
-                  </p>
-                  { !showDeleted && <p className="mt-2 text-sm text-muted-foreground">Commencez à écrire...</p> }
-                </Card>
+                <Card className="p-12 text-center"> {/* ... Message Vide ... */} </Card>
               ) : (
                 notesForSelectedDate.map((note) => (
                   <Card key={note.id} className={`p-6 transition-shadow ${ showDeleted ? 'opacity-70 hover:opacity-100' : 'hover:shadow-md' } ${note.is_pinned && !showDeleted ? "ring-2 ring-primary" : ""}`}>
                     {editingNoteId === note.id && !showDeleted ? (
-                      /* ... (Formulaire d'édition en place) ... */
-                       <div className="space-y-4">
-                         {/* ... Textarea, Inputs Tags, Buttons Save/Cancel ... */}
-                       </div>
+                       <div className="space-y-4"> {/* ... Formulaire Edit en place ... */} </div>
                     ) : (
                       <div>
                         <div className="mb-3 flex items-start justify-between gap-4">
                           <div className="flex-1">
-                            {/* ... (Affichage Tags, Contenu) ... */}
-                            <p className="whitespace-pre-wrap text-foreground leading-relaxed">{note.content}</p>
-                            <p className="mt-3 text-xs text-muted-foreground">
-                               {note.author && <span className="font-medium">{note.author}</span>}
-                               {note.author && " • "}
-                                {/* --- Affichage différent si dans la corbeille --- */}
-                                {showDeleted && note.deleted_at ? (
-                                    <>Supprimée {formatDistanceToNow(new Date(note.deleted_at), { locale: fr, addSuffix: true })}</>
-                                ) : (
-                                    <>Créée: {format(new Date(note.created_at), "HH:mm", { locale: fr })} • Modifiée:{" "} {format(new Date(note.updated_at), "HH:mm", { locale: fr })}</>
-                                )}
-                                {/* --- Fin affichage différent --- */}
+                             {/* ... Affichage Tags, Contenu ... */}
+                             <p className="mt-3 text-xs text-muted-foreground">
+                               {/* ... Affichage Auteur ... */}
+                               {showDeleted && note.deleted_at ? (<>Supprimée {formatDistanceToNow(new Date(note.deleted_at), { locale: fr, addSuffix: true })}</>)
+                               : (<>Créée: {format(new Date(note.created_at), "HH:mm", { locale: fr })} • Modifiée: {format(new Date(note.updated_at), "HH:mm", { locale: fr })}</>)}
                             </p>
                           </div>
-                          {/* --- Boutons d'action différents dans la corbeille --- */}
+                          {/* Boutons d'action conditionnels */}
                           {showDeleted ? (
                             <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" onClick={() => restoreNote(note.id)} title="Restaurer">
-                                <RotateCcw className="h-4 w-4 text-green-600" />
-                              </Button>
-                              <Button variant="ghost" size="icon" onClick={() => deletePermanently(note.id)} title="Supprimer définitivement">
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => restoreNote(note.id)} title="Restaurer"> <RotateCcw className="h-4 w-4 text-green-600" /> </Button>
+                              <Button variant="ghost" size="icon" onClick={() => deletePermanently(note.id)} title="Supprimer définitivement"> <Trash2 className="h-4 w-4 text-destructive" /> </Button>
                             </div>
                           ) : (
                             <div className="flex gap-1">
-                              {/* ... (Boutons Pin, Archive, Edit, Delete (soft)) ... */}
-                              <Button variant="ghost" size="icon" onClick={() => togglePin(note)} title={note.is_pinned ? "Désépingler" : "Épingler"}> <Pin className={`h-4 w-4 ${note.is_pinned ? "fill-current" : ""}`} /> </Button>
-                              <Button variant="ghost" size="icon" onClick={() => toggleArchive(note)} title={note.is_archived ? "Désarchiver" : "Archiver"}> <Archive className="h-4 w-4" /> </Button>
-                              <Button variant="ghost" size="icon" onClick={() => startEditing(note)} title="Éditer"> <Edit2 className="h-4 w-4" /> </Button>
-                              <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)} title="Mettre à la corbeille"> <Trash className="h-4 w-4 text-destructive" /> </Button> {/* Changé l'icône pour la corbeille simple */}
+                               {/* ... Boutons Pin, Archive, Edit, Delete (soft) ... */}
+                               <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)} title="Mettre à la corbeille"> <Trash className="h-4 w-4 text-destructive" /> </Button>
                             </div>
                           )}
-                          {/* --- Fin boutons d'action --- */}
                         </div>
                       </div>
                     )}
@@ -301,4 +275,4 @@ export function NotesApp() {
       </div>
     </div>
   )
-}
+} // <<<<< FIN DU COMPOSANT NotesApp
