@@ -173,14 +173,8 @@ export function NotesApp() {
 
   const safeNotes = notes || []
 
-  // Notes pour la date sélectionnée ET l'utilisateur courant (pour l'affichage)
+  // Notes pour la date sélectionnée (TOUS utilisateurs)
   const notesForSelectedDate = useMemo(() => {
-    const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
-    return safeNotes.filter((note) => note.date === selectedDateStr && note.author === currentUser)
-  }, [safeNotes, selectedDate, currentUser])
-
-  // Notes pour la date sélectionnée, TOUS utilisateurs (pour l'export PDF)
-  const notesForSelectedDateAllUsers = useMemo(() => {
     const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
     return safeNotes.filter((note) => note.date === selectedDateStr)
   }, [safeNotes, selectedDate])
@@ -367,6 +361,7 @@ export function NotesApp() {
     return TAG_COLORS[index % TAG_COLORS.length]
   }
 
+  // Tags pour l'utilisateur courant (pour le filtre)
   const allTags = useMemo(() => {
     const tagSet = new Set<string>()
     safeNotes
@@ -375,6 +370,7 @@ export function NotesApp() {
     return Array.from(tagSet)
   }, [safeNotes, currentUser])
 
+  // Stats pour l'utilisateur courant
   const pinnedNotes = safeNotes.filter((n) => n.is_pinned && !n.is_archived && n.author === currentUser)
   const activeNotesCount = safeNotes.filter((n) => !n.is_archived && n.author === currentUser).length
 
@@ -430,7 +426,7 @@ export function NotesApp() {
             <Button
               variant="outline"
               size="icon"
-              onClick={() => exportNotesToPDF(notesForSelectedDateAllUsers, selectedDate)}
+              onClick={() => exportNotesToPDF(notesForSelectedDate, selectedDate)}
               title="Exporter en PDF (cette date)"
             >
               <Download className="h-4 w-4" />
@@ -468,7 +464,7 @@ export function NotesApp() {
           </Button>
         </div>
 
-        {/* Tags Filter */}
+        {/* Tags Filter (pour l'utilisateur courant) */}
         {allTags.length > 0 && (
           <div className="mb-6 flex flex-wrap gap-2">
             <Button
@@ -514,12 +510,13 @@ export function NotesApp() {
                   onSelect={(date) => date && setSelectedDate(date)}
                   locale={fr}
                   className="rounded-md"
-                  modifiers={{ hasNotes: allTags }}
+                  modifiers={{ hasNotes: allTags }} // Continue d'utiliser les tags de l'utilisateur pour le style
                   modifiersStyles={{ hasNotes: { fontWeight: "bold", textDecoration: "underline" } }}
                 />
               </div>
             </Card>
 
+            {/* Stats (pour l'utilisateur courant) */}
             <Card className="hidden p-6 lg:block">
               <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">Statistiques</h3>
               <div className="space-y-3">
@@ -533,7 +530,6 @@ export function NotesApp() {
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-foreground">{allTags.length}</p>
-
                   <p className="text-sm text-muted-foreground">Tags uniques</p>
                 </div>
               </div>
@@ -548,11 +544,11 @@ export function NotesApp() {
                 {format(selectedDate, "EEEE d MMMM yyyy", { locale: fr })}
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                {notesForSelectedDate.length} {notesForSelectedDate.length > 1 ? "notes" : "note"} (pour vous)
+                {notesForSelectedDate.length} {notesForSelectedDate.length > 1 ? "notes" : "note"}
               </p>
             </div>
 
-            {/* New Note Form */}
+            {/* New Note Form (pour l'utilisateur courant) */}
             <Card className="p-6">
               <h3 className="mb-4 text-sm font-medium uppercase tracking-wide text-muted-foreground">Nouvelle note</h3>
               <Textarea
@@ -629,7 +625,7 @@ export function NotesApp() {
               </div>
             </Card>
 
-            {/* Notes List */}
+            {/* Notes List (pour TOUS les utilisateurs) */}
             <div className={viewMode === "grid" ? "grid gap-4 md:grid-cols-2" : "space-y-4"}>
               {notesForSelectedDate.length === 0 ? (
                 <Card className="p-12 text-center">
