@@ -26,11 +26,18 @@ import {
   List,
   Tag,
   LogOut,
+  ScrollText, // Ajout de l'icône pour la timeline
 } from "lucide-react"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { useTheme } from "next-themes"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Login } from "@/components/login"
 import jsPDF from "jspdf" // Importation de jsPDF
 
@@ -74,7 +81,10 @@ const exportNotesToPDF = (notesToExport: Note[], selectedDate: Date) => {
   y += 18
 
   notesToExport
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    )
     .forEach((note) => {
       // Vérifier si on a besoin d'une nouvelle page
       if (y > doc.internal.pageSize.height - 40) {
@@ -82,7 +92,11 @@ const exportNotesToPDF = (notesToExport: Note[], selectedDate: Date) => {
         y = 20 // Réinitialiser y pour la nouvelle page
       }
 
-      const meta = `Auteur: ${note.author || "Inconnu"}  |  Modifiée: ${format(new Date(note.updated_at), "HH:mm", { locale: fr })}`
+      const meta = `Auteur: ${
+        note.author || "Inconnu"
+      }  |  Modifiée: ${format(new Date(note.updated_at), "HH:mm", {
+        locale: fr,
+      })}`
       doc.setFontSize(10)
       doc.setTextColor(100) // Gris
       doc.text(meta, margin, y)
@@ -111,13 +125,18 @@ const exportNotesToPDF = (notesToExport: Note[], selectedDate: Date) => {
   doc.save(`enculator-export-${format(selectedDate, "yyyy-MM-dd")}.pdf`)
 }
 
-const handleLogin = (user: string, setCurrentUser: React.Dispatch<React.SetStateAction<string | null>>) => {
+const handleLogin = (
+  user: string,
+  setCurrentUser: React.Dispatch<React.SetStateAction<string | null>>,
+) => {
   // Implement login functionality here
   localStorage.setItem("enculator_user", user)
   setCurrentUser(user)
 }
 
-const handleLogout = (setCurrentUser: React.Dispatch<React.SetStateAction<string | null>>) => {
+const handleLogout = (
+  setCurrentUser: React.Dispatch<React.SetStateAction<string | null>>,
+) => {
   // Implement logout functionality here
   localStorage.removeItem("enculator_user")
   setCurrentUser(null)
@@ -135,6 +154,7 @@ const fetcher = async (url: string) => {
 export function NotesApp() {
   const [currentUser, setCurrentUser] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [mainView, setMainView] = useState<"calendar" | "timeline">("calendar") // État pour basculer la vue
   const [newNoteContent, setNewNoteContent] = useState("")
   const [newNoteTags, setNewNoteTags] = useState<string[]>([])
   const [newTagInput, setNewTagInput] = useState("")
@@ -156,8 +176,18 @@ export function NotesApp() {
     if (selectedTag) params.append("tag", selectedTag)
     if (showArchived) params.append("showArchived", "true")
     params.append("sortBy", sortBy)
+    
+    // IMPORTANT : On ne filtre par date que dans la vue calendrier
+    // La vue timeline a besoin de toutes les notes (filtrées par recherche/tag/archive)
+    if (mainView === 'calendar') {
+       // La logique originale filtrait en local.
+       // Pour optimiser, on pourrait ajouter le filtre de date ici :
+       // params.append("date", format(selectedDate, "yyyy-MM-dd"))
+       // Mais pour garder la logique de "notesForSelectedDate" simple, on continue de tout charger.
+    }
+
     return `/api/notes?${params}`
-  }, [searchQuery, selectedTag, showArchived, sortBy])
+  }, [searchQuery, selectedTag, showArchived, sortBy, mainView, selectedDate]) // Ajout de mainView et selectedDate
 
   const {
     data: notes,
@@ -171,9 +201,9 @@ export function NotesApp() {
     fallbackData: [],
   })
 
-  const safeNotes = notes || []
+  const safeNotes = notes || [] // `safeNotes` contient TOUTES les notes (filtrées par API)
 
-  // Notes pour la date sélectionnée (TOUS utilisateurs)
+  // Notes pour la date sélectionnée (TOUS utilisateurs) - UTILISÉ SEULEMENT PAR LA VUE CALENDRIER
   const notesForSelectedDate = useMemo(() => {
     const selectedDateStr = format(selectedDate, "yyyy-MM-dd")
     return safeNotes.filter((note) => note.date === selectedDateStr)
@@ -232,7 +262,9 @@ export function NotesApp() {
   const togglePin = async (note: Note) => {
     try {
       mutate(
-        safeNotes.map((n) => (n.id === note.id ? { ...n, is_pinned: !n.is_pinned } : n)),
+        safeNotes.map((n) =>
+          n.id === note.id ? { ...n, is_pinned: !n.is_pinned } : n,
+        ),
         false,
       )
 
@@ -261,7 +293,9 @@ export function NotesApp() {
   const toggleArchive = async (note: Note) => {
     try {
       mutate(
-        safeNotes.map((n) => (n.id === note.id ? { ...n, is_archived: !n.is_archived } : n)),
+        safeNotes.map((n) =>
+          n.id === note.id ? { ...n, is_archived: !n.is_archived } : n,
+        ),
         false,
       )
 
@@ -270,7 +304,7 @@ export function NotesApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: note.content,
-          is_archived: !note.is_archived,
+          is_archived: !n.is_archived,
           tags: note.tags,
           is_pinned: note.is_pinned,
         }),
@@ -330,9 +364,13 @@ export function NotesApp() {
 
   const toggleTag = (tag: string, isEditing = false) => {
     if (isEditing) {
-      setEditTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+      setEditTags((prev) =>
+        prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+      )
     } else {
-      setNewNoteTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+      setNewNoteTags((prev) =>
+        prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+      )
     }
   }
 
@@ -365,16 +403,258 @@ export function NotesApp() {
   const allTags = useMemo(() => {
     const tagSet = new Set<string>()
     safeNotes
-     
+      .filter((note) => note.author === currentUser) // Filtre les tags pour l'utilisateur courant
       .forEach((note) => note.tags?.forEach((tag) => tagSet.add(tag)))
     return Array.from(tagSet)
-  }, [safeNotes])
+  }, [safeNotes, currentUser])
 
   // Stats pour l'utilisateur courant
-const pinnedNotes = safeNotes.filter((n) => n.is_pinned && !n.is_archived)
-const activeNotesCount = safeNotes.filter((n) => !n.is_archived).length
+  const pinnedNotes = safeNotes.filter(
+    (n) => n.is_pinned && !n.is_archived && n.author === currentUser,
+  )
+  const activeNotesCount = safeNotes.filter(
+    (n) => !n.is_archived && n.author === currentUser,
+  ).length
 
-  if (isLoading) {
+  // ==============================================================
+  // SOUS-COMPOSANT NoteCard
+  // ==============================================================
+  const NoteCard: React.FC<{ note: Note }> = ({ note }) => {
+    return (
+      <Card
+        className={`p-6 transition-shadow hover:shadow-md ${
+          note.is_pinned ? "ring-2 ring-primary" : ""
+        }`}
+      >
+        {editingNoteId === note.id ? (
+          <div className="space-y-4">
+            <Textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="min-h-[120px] resize-none"
+              autoFocus
+            />
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Ajouter un tag personnalisé..."
+                  value={editTagInput}
+                  onChange={(e) => setEditTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      addCustomTag(true)
+                    }
+                  }}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addCustomTag(true)}
+                  disabled={!editTagInput.trim()}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              {editTags.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {editTags.map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant="default"
+                      className={`cursor-pointer ${getTagColor(tag)}`}
+                      onClick={() => toggleTag(tag, true)}
+                    >
+                      {tag}
+                      <X className="ml-1 h-3 w-3" />
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {allTags.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  <p className="w-full text-xs text-muted-foreground">
+                    Tags existants :
+                  </p>
+                  {allTags.map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant={editTags.includes(tag) ? "default" : "outline"}
+                      className={`cursor-pointer ${
+                        editTags.includes(tag) ? getTagColor(tag) : ""
+                      }`}
+                      onClick={() => toggleTag(tag, true)}
+                    >
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={cancelEdit}>
+                <X className="mr-2 h-4 w-4" />
+                Annuler
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => saveEdit(note.id)}
+                disabled={!editContent.trim()}
+              >
+                <Check className="mr-2 h-4 w-4" />
+                Enregistrer
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div className="mb-3 flex items-start justify-between gap-4">
+              <div className="flex-1">
+                {note.tags && note.tags.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-1">
+                    {note.tags.map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant="secondary"
+                        className={getTagColor(tag)}
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <p className="whitespace-pre-wrap text-foreground leading-relaxed">
+                  {note.content}
+                </p>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {note.author && (
+                    <span className="font-medium">{note.author}</span>
+                  )}
+                  {note.author && " • "}
+                  Créée: {format(new Date(note.created_at), "HH:mm", {
+                    locale: fr,
+                  })}{" "}
+                  • Modifiée:{" "}
+                  {format(new Date(note.updated_at), "HH:mm", { locale: fr })}
+                </p>
+              </div>
+              <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => togglePin(note)}
+                  title={note.is_pinned ? "Désépingler" : "Épingler"}
+                >
+                  <Pin
+                    className={`h-4 w-4 ${
+                      note.is_pinned ? "fill-current" : ""
+                    }`}
+                  />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => toggleArchive(note)}
+                  title={note.is_archived ? "Désarchiver" : "Archiver"}
+                >
+                  <Archive className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => startEditing(note)}
+                  title="Éditer"
+                >
+                  <Edit2 className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => deleteNote(note.id)}
+                  title="Supprimer"
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+    )
+  }
+
+  // ==============================================================
+  // NOUVEAU COMPOSANT NotesTimeline
+  // ==============================================================
+  const NotesTimeline = () => {
+    // Groupe les notes par date
+    const groupedNotes = useMemo(() => {
+      const map = new Map<string, Note[]>()
+      // `safeNotes` contient DÉJÀ toutes les notes filtrées (recherche, tag, archive)
+      // et triées (par date, par défaut)
+      for (const note of safeNotes) {
+        const dateKey = note.date // Le format est déjà 'yyyy-MM-dd'
+        if (!map.has(dateKey)) {
+          map.set(dateKey, [])
+        }
+        map.get(dateKey)!.push(note)
+      }
+      return map
+    }, [safeNotes]) // Se recalcule si les notes changent
+
+    if (isLoading) {
+      return (
+        <p className="text-muted-foreground">Chargement de la timeline...</p>
+      )
+    }
+
+    if (safeNotes.length === 0) {
+      return (
+        <Card className="p-12 text-center">
+          <p className="text-muted-foreground">
+            Aucune note ne correspond à vos filtres actuels.
+          </p>
+        </Card>
+      )
+    }
+
+    return (
+      <div className="space-y-8">
+        {[...groupedNotes.entries()].map(([dateStr, notesInDay]) => (
+          <section key={dateStr} className="space-y-4">
+            {/* Entête de date */}
+            <h2 className="text-xl font-bold text-foreground border-b pb-2">
+              {format(
+                new Date(dateStr + "T12:00:00"), // Ajoute T12 pour éviter les décalages de fuseau horaire
+                "EEEE d MMMM yyyy",
+                { locale: fr },
+              )}
+            </h2>
+
+            {/* Grille/Liste de notes pour ce jour */}
+            <div
+              className={
+                viewMode === "grid" ? "grid gap-4 md:grid-cols-2" : "space-y-4"
+              }
+            >
+              {notesInDay.map((note) => (
+                <NoteCard key={note.id} note={note} />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    )
+  }
+
+  // ==============================================================
+  // RENDU PRINCIPAL
+  // ==============================================================
+
+  if (isLoading && !currentUser) {
+    // Gérer l'état de chargement initial avant de connaître l'utilisateur
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <p className="text-muted-foreground">Chargement...</p>
@@ -391,7 +671,9 @@ const activeNotesCount = safeNotes.filter((n) => !n.is_archived).length
   }
 
   if (!currentUser) {
-    return <Login onLogin={(user: string) => handleLogin(user, setCurrentUser)} />
+    return (
+      <Login onLogin={(user: string) => handleLogin(user, setCurrentUser)} />
+    )
   }
 
   return (
@@ -406,9 +688,14 @@ const activeNotesCount = safeNotes.filter((n) => !n.is_archived).length
               className="h-16 w-16 object-contain"
             />
             <div>
-              <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-5xl">Enculator</h1>
+              <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-5xl">
+                Enculator
+              </h1>
               <div className="mt-2 flex items-center gap-2">
-                <Badge variant="default" className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-1 text-sm">
+                <Badge
+                  variant="default"
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-1 text-sm"
+                >
                   <span className="mr-1">👤</span>
                   {currentUser}
                 </Badge>
@@ -417,17 +704,33 @@ const activeNotesCount = safeNotes.filter((n) => !n.is_archived).length
             </div>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="icon" onClick={() => handleLogout(setCurrentUser)} title="Se déconnecter">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handleLogout(setCurrentUser)}
+              title="Se déconnecter"
+            >
               <LogOut className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
             <Button
               variant="outline"
               size="icon"
-              onClick={() => exportNotesToPDF(notesForSelectedDate, selectedDate)}
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() =>
+                exportNotesToPDF(notesForSelectedDate, selectedDate)
+              }
               title="Exporter en PDF (cette date)"
+              disabled={mainView !== 'calendar'} // Désactiver l'export si on n'est pas sur une date précise
             >
               <Download className="h-4 w-4" />
             </Button>
@@ -455,10 +758,44 @@ const activeNotesCount = safeNotes.filter((n) => !n.is_archived).length
               <SelectItem value="alpha">Alphabétique</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}>
-            {viewMode === "grid" ? <List className="h-4 w-4" /> : <Grid3x3 className="h-4 w-4" />}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
+          >
+            {viewMode === "grid" ? (
+              <List className="h-4 w-4" />
+            ) : (
+              <Grid3x3 className="h-4 w-4" />
+            )}
           </Button>
-          <Button variant={showArchived ? "default" : "outline"} onClick={() => setShowArchived(!showArchived)}>
+
+          {/* Boutons de bascule de vue */}
+          <div className="flex rounded-md border bg-background p-0.5">
+            <Button
+              variant={mainView === "calendar" ? "secondary" : "ghost"}
+              size="icon"
+              onClick={() => setMainView("calendar")}
+              title="Vue Calendrier"
+              className="shadow-none"
+            >
+              <CalendarIcon className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={mainView === "timeline" ? "secondary" : "ghost"}
+              size="icon"
+              onClick={() => setMainView("timeline")}
+              title="Vue Timeline"
+              className="shadow-none"
+            >
+              <ScrollText className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <Button
+            variant={showArchived ? "default" : "outline"}
+            onClick={() => setShowArchived(!showArchived)}
+          >
             <Archive className="mr-2 h-4 w-4" />
             Archivées
           </Button>
@@ -493,7 +830,9 @@ const activeNotesCount = safeNotes.filter((n) => !n.is_archived).length
           <aside className="space-y-6">
             <Card className="p-6">
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Calendrier</h2>
+                <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+                  Calendrier
+                </h2>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -507,29 +846,46 @@ const activeNotesCount = safeNotes.filter((n) => !n.is_archived).length
                 <Calendar
                   mode="single"
                   selected={selectedDate}
-                  onSelect={(date) => date && setSelectedDate(date)}
+                  onSelect={(date) => {
+                    if (date) {
+                      setSelectedDate(date)
+                      setMainView("calendar") // Rebasculer sur la vue calendrier lors du clic
+                    }
+                  }}
                   locale={fr}
                   className="rounded-md"
                   modifiers={{ hasNotes: allTags }} // Continue d'utiliser les tags de l'utilisateur pour le style
-                  modifiersStyles={{ hasNotes: { fontWeight: "bold", textDecoration: "underline" } }}
+                  modifiersStyles={{
+                    hasNotes: { fontWeight: "bold", textDecoration: "underline" },
+                  }}
                 />
               </div>
             </Card>
 
             {/* Stats (pour l'utilisateur courant) */}
             <Card className="hidden p-6 lg:block">
-              <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">Statistiques</h3>
+              <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+                Statistiques
+              </h3>
               <div className="space-y-3">
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{activeNotesCount}</p>
+                  <p className="text-2xl font-bold text-foreground">
+                    {activeNotesCount}
+                  </p>
                   <p className="text-sm text-muted-foreground">Notes actives</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{pinnedNotes.length}</p>
-                  <p className="text-sm text-muted-foreground">Notes épinglées</p>
+                  <p className="text-2xl font-bold text-foreground">
+                    {pinnedNotes.length}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Notes épinglées
+                  </p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{allTags.length}</p>
+                  <p className="text-2xl font-bold text-foreground">
+                    {allTags.length}
+                  </p>
                   <p className="text-sm text-muted-foreground">Tags uniques</p>
                 </div>
               </div>
@@ -538,234 +894,142 @@ const activeNotesCount = safeNotes.filter((n) => !n.is_archived).length
 
           {/* Main Content */}
           <main className="space-y-6">
-            {/* Date Header */}
-            <div className="border-b border-border pb-4">
-              <h2 className="text-2xl font-bold text-foreground">
-                {format(selectedDate, "EEEE d MMMM yyyy", { locale: fr })}
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {notesForSelectedDate.length} {notesForSelectedDate.length > 1 ? "notes" : "note"}
-              </p>
-            </div>
+            {/* Rendu conditionnel de la vue principale */}
 
-            {/* New Note Form (pour l'utilisateur courant) */}
-            <Card className="p-6">
-              <h3 className="mb-4 text-sm font-medium uppercase tracking-wide text-muted-foreground">Nouvelle note</h3>
-              <Textarea
-                placeholder="Écrivez votre note ici..."
-                value={newNoteContent}
-                onChange={(e) => setNewNoteContent(e.target.value)}
-                className="mb-4 min-h-[120px] resize-none"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    addNote()
-                  }
-                }}
-              />
-              <div className="mb-4 space-y-3">
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Ajouter un tag personnalisé..."
-                    value={newTagInput}
-                    onChange={(e) => setNewTagInput(e.target.value)}
+            {mainView === "calendar" ? (
+              // ---------------------------------
+              // VUE CALENDRIER (existante)
+              // ---------------------------------
+              <>
+                {/* Date Header */}
+                <div className="border-b border-border pb-4">
+                  <h2 className="text-2xl font-bold text-foreground">
+                    {format(selectedDate, "EEEE d MMMM yyyy", { locale: fr })}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {notesForSelectedDate.length}{" "}
+                    {notesForSelectedDate.length > 1 ? "notes" : "note"}
+                  </p>
+                </div>
+
+                {/* New Note Form (pour l'utilisateur courant) */}
+                <Card className="p-6">
+                  <h3 className="mb-4 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+                    Nouvelle note
+                  </h3>
+                  <Textarea
+                    placeholder="Écrivez votre note ici..."
+                    value={newNoteContent}
+                    onChange={(e) => setNewNoteContent(e.target.value)}
+                    className="mb-4 min-h-[120px] resize-none"
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        addCustomTag(false)
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        addNote()
                       }
                     }}
-                    className="flex-1"
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addCustomTag(false)}
-                    disabled={!newTagInput.trim()}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-                {newNoteTags.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {newNoteTags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        variant="default"
-                        className={`cursor-pointer ${getTagColor(tag)}`}
-                        onClick={() => toggleTag(tag)}
+                  <div className="mb-4 space-y-3">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Ajouter un tag personnalisé..."
+                        value={newTagInput}
+                        onChange={(e) => setNewTagInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            addCustomTag(false)
+                          }
+                        }}
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => addCustomTag(false)}
+                        disabled={!newTagInput.trim()}
                       >
-                        {tag}
-                        <X className="ml-1 h-3 w-3" />
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-                {allTags.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    <p className="w-full text-xs text-muted-foreground">Tags existants :</p>
-                    {allTags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        variant={newNoteTags.includes(tag) ? "default" : "outline"}
-                        className={`cursor-pointer ${newNoteTags.includes(tag) ? getTagColor(tag) : ""}`}
-                        onClick={() => toggleTag(tag)}
-                      >
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={addNote} disabled={!newNoteContent.trim()}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Ajouter la note
-                </Button>
-              </div>
-            </Card>
-
-            {/* Notes List (pour TOUS les utilisateurs) */}
-            <div className={viewMode === "grid" ? "grid gap-4 md:grid-cols-2" : "space-y-4"}>
-              {notesForSelectedDate.length === 0 ? (
-                <Card className="p-12 text-center">
-                  <p className="text-muted-foreground">Aucune note pour cette date.</p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Commencez à écrire pour créer votre première note.
-                  </p>
-                </Card>
-              ) : (
-                notesForSelectedDate.map((note) => (
-                  <Card
-                    key={note.id}
-                    className={`p-6 transition-shadow hover:shadow-md ${note.is_pinned ? "ring-2 ring-primary" : ""}`}
-                  >
-                    {editingNoteId === note.id ? (
-                      <div className="space-y-4">
-                        <Textarea
-                          value={editContent}
-                          onChange={(e) => setEditContent(e.target.value)}
-                          className="min-h-[120px] resize-none"
-                          autoFocus
-                        />
-                        <div className="space-y-3">
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="Ajouter un tag personnalisé..."
-                              value={editTagInput}
-                              onChange={(e) => setEditTagInput(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault()
-                                  addCustomTag(true)
-                                }
-                              }}
-                              className="flex-1"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => addCustomTag(true)}
-                              disabled={!editTagInput.trim()}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          {editTags.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {editTags.map((tag) => (
-                                <Badge
-                                  key={tag}
-                                  variant="default"
-                                  className={`cursor-pointer ${getTagColor(tag)}`}
-                                  onClick={() => toggleTag(tag, true)}
-                                >
-                                  {tag}
-                                  <X className="ml-1 h-3 w-3" />
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                          {allTags.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              <p className="w-full text-xs text-muted-foreground">Tags existants :</p>
-                              {allTags.map((tag) => (
-                                <Badge
-                                  key={tag}
-                                  variant={editTags.includes(tag) ? "default" : "outline"}
-                                  className={`cursor-pointer ${editTags.includes(tag) ? getTagColor(tag) : ""}`}
-                                  onClick={() => toggleTag(tag, true)}
-                                >
-                                  {tag}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="sm" onClick={cancelEdit}>
-                            <X className="mr-2 h-4 w-4" />
-                            Annuler
-                          </Button>
-                          <Button size="sm" onClick={() => saveEdit(note.id)} disabled={!editContent.trim()}>
-                            <Check className="mr-2 h-4 w-4" />
-                            Enregistrer
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <div className="mb-3 flex items-start justify-between gap-4">
-                          <div className="flex-1">
-                            {note.tags && note.tags.length > 0 && (
-                              <div className="mb-2 flex flex-wrap gap-1">
-                                {note.tags.map((tag) => (
-                                  <Badge key={tag} variant="secondary" className={getTagColor(tag)}>
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                            <p className="whitespace-pre-wrap text-foreground leading-relaxed">{note.content}</p>
-                            <p className="mt-3 text-xs text-muted-foreground">
-                              {note.author && <span className="font-medium">{note.author}</span>}
-                              {note.author && " • "}
-                              Créée: {format(new Date(note.created_at), "HH:mm", { locale: fr })} • Modifiée:{" "}
-                              {format(new Date(note.updated_at), "HH:mm", { locale: fr })}
-                            </p>
-                          </div>
-                          <div className="flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => togglePin(note)}
-                              title={note.is_pinned ? "Désépingler" : "Épingler"}
-                            >
-                              <Pin className={`h-4 w-4 ${note.is_pinned ? "fill-current" : ""}`} />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => toggleArchive(note)}
-                              title={note.is_archived ? "Désarchiver" : "Archiver"}
-                            >
-                              <Archive className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => startEditing(note)} title="Éditer">
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => deleteNote(note.id)} title="Supprimer">
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </div>
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {newNoteTags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {newNoteTags.map((tag) => (
+                          <Badge
+                            key={tag}
+                            variant="default"
+                            className={`cursor-pointer ${getTagColor(tag)}`}
+                            onClick={() => toggleTag(tag)}
+                          >
+                            {tag}
+                            <X className="ml-1 h-3 w-3" />
+                          </Badge>
+                        ))}
                       </div>
                     )}
-                  </Card>
-                ))
-              )}
-            </div>
+                    {allTags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        <p className="w-full text-xs text-muted-foreground">
+                          Tags existants :
+                        </p>
+                        {allTags.map((tag) => (
+                          <Badge
+                            key={tag}
+                            variant={
+                              newNoteTags.includes(tag) ? "default" : "outline"
+                            }
+                            className={`cursor-pointer ${
+                              newNoteTags.includes(tag) ? getTagColor(tag) : ""
+                            }`}
+                            onClick={() => toggleTag(tag)}
+                          >
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={addNote}
+                      disabled={!newNoteContent.trim()}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Ajouter la note
+                    </Button>
+                  </div>
+                </Card>
+
+                {/* Notes List (pour TOUS les utilisateurs) */}
+                <div
+                  className={
+                    viewMode === "grid"
+                      ? "grid gap-4 md:grid-cols-2"
+                      : "space-y-4"
+                  }
+                >
+                  {notesForSelectedDate.length === 0 ? (
+                    <Card className="p-12 text-center">
+                      <p className="text-muted-foreground">
+                        Aucune note pour cette date.
+                      </p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Commencez à écrire pour créer votre première note.
+                      </p>
+                    </Card>
+                  ) : (
+                    notesForSelectedDate.map((note) => (
+                      <NoteCard key={note.id} note={note} />
+                    ))
+                  )}
+                </div>
+              </>
+            ) : (
+              // ---------------------------------
+              // NOUVELLE VUE TIMELINE
+              // ---------------------------------
+              <NotesTimeline />
+            )}
           </main>
         </div>
       </div>
