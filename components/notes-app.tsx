@@ -365,14 +365,14 @@ export function NotesApp() {
   const allTags = useMemo(() => {
     const tagSet = new Set<string>()
     safeNotes
-      .filter((note) => note.author === currentUser) // Filtre les tags pour l'utilisateur courant
+     
       .forEach((note) => note.tags?.forEach((tag) => tagSet.add(tag)))
     return Array.from(tagSet)
-  }, [safeNotes, currentUser])
+  }, [safeNotes])
 
   // Stats pour l'utilisateur courant
-  const pinnedNotes = safeNotes.filter((n) => n.is_pinned && !n.is_archived && n.author === currentUser)
-  const activeNotesCount = safeNotes.filter((n) => !n.is_archived && n.author === currentUser).length
+const pinnedNotes = safeNotes.filter((n) => n.is_pinned && !n.is_archived)
+const activeNotesCount = safeNotes.filter((n) => !n.is_archived).length
 
   if (isLoading) {
     return (
